@@ -25,7 +25,7 @@ bool Model_TypeCheck(BYTE *fileBuffer, int bufferLen, noeRAPI_t *rapi)
 	return true;
 }
 
-void Model_ReadMaterials(BYTE *fileBuffer) {
+void Model_ReadMaterials(BYTE *fileBuffer, noeRAPI_t *rapi) {
 	int offset = sizeof(modelHdr_t);
 	int matNum = (int)(fileBuffer+offset);
 	offset += 4;
@@ -40,9 +40,22 @@ void Model_ReadMaterials(BYTE *fileBuffer) {
 			BYTE reflectionTextureNameLength = (BYTE)(fileBuffer+offset);
 			offset++;
 
-			char *reflectionTextureName = (char *)(fileBuffer+offset);
+			char *reflectionTextureName = new char[reflectionTextureNameLength];
+			reflectionTextureName = (char *)(fileBuffer+offset);
+			rapi->LogOutput(reflectionTextureName);
+			return;
 		}
 	}
+}
+
+noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noeRAPI_t *rapi)
+{
+	Model_ReadMaterials(fileBuffer, rapi);
+	void *pgctx = rapi->rpgCreateContext();
+	rapi->rpgEnd();
+	noesisModel_t *mdl = rapi->rpgConstructModel();
+	rapi->rpgDestroyContext(pgctx);
+	return mdl;
 }
 
 //called by Noesis to init the plugin
@@ -56,7 +69,7 @@ bool NPAPI_InitLocal(void)
 
 	//set the data handlers for this format
 	g_nfn->NPAPI_SetTypeHandler_TypeCheck(g_fmtHandle, Model_TypeCheck);
-	//g_nfn->NPAPI_SetTypeHandler_LoadModel(g_fmtHandle, Model_MD2_Load);
+	g_nfn->NPAPI_SetTypeHandler_LoadModel(g_fmtHandle, Model_LoadModel);
 	//export functions
 	//g_nfn->NPAPI_SetTypeHandler_WriteModel(g_fmtHandle, Model_MD2_Write);
 	//g_nfn->NPAPI_SetTypeHandler_WriteAnim(g_fmtHandle, Model_MD2_WriteAnim);
