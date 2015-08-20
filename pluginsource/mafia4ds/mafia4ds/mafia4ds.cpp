@@ -25,35 +25,245 @@ bool Model_TypeCheck(BYTE *fileBuffer, int bufferLen, noeRAPI_t *rapi)
 	return true;
 }
 
-void Model_ReadMaterials(BYTE *fileBuffer, noeRAPI_t *rapi) {
-	int offset = sizeof(modelHdr_t);
-	int matNum = (int)(fileBuffer+offset);
-	offset += 4;
+void Model_ReadMaterials(RichBitStream *bs, noeRAPI_t *rapi, CArrayList<noesisTex_t *> &texList, CArrayList<noesisMaterial_t *> &matList) 
+{	
+	short matNum;
+	bs->ReadBytes(&matNum, 2);
 
-	for (int i = 0; i < matNum; i++) {
-		mtl_t *mtl = (mtl_t *)(matNum+offset);
-		offset += sizeof(mtl_t);
+	HWND wnd = g_nfn->NPAPI_GetMainWnd();
 
-		if (mtl->flags & MTL_REFLECTIONTEX) {
-			float *reflection = (float *)(fileBuffer+offset);
-			offset += sizeof(float);
-			BYTE reflectionTextureNameLength = (BYTE)(fileBuffer+offset);
-			offset++;
+	for (int i = 0; i < matNum; i++) 
+	{
+		mafiaMtl_t mafiaMtl;
+		mtl_t mtl;
+		bs->ReadBytes(&mtl, sizeof(mtl_t));
+		mafiaMtl.mtl = &mtl;
 
-			char *reflectionTextureName = new char[reflectionTextureNameLength];
-			reflectionTextureName = (char *)(fileBuffer+offset);
-			rapi->LogOutput(reflectionTextureName);
-			return;
+		noesisMaterial_t *mat = rapi->Noesis_GetMaterialList(1, true);
+
+		if (mtl.flags & MTL_REFLECTIONTEX) 
+		{
+			float reflection = bs->ReadFloat();
+			BYTE reflectionTextureNameLength = bs->ReadByte();
+
+			if (reflectionTextureNameLength > 0) 
+			{
+				char *reflectionTextureName = new char[reflectionTextureNameLength];
+				bs->ReadString(reflectionTextureName, reflectionTextureNameLength+1);
+			}			
 		}
+
+		BYTE diffuseTextureNameLength = bs->ReadByte();
+				
+		if (diffuseTextureNameLength > 0) 
+		{
+			char *diffuseTextureName = new char[diffuseTextureNameLength];
+			bs->ReadString(diffuseTextureName, diffuseTextureNameLength+1);
+
+			mat->name = diffuseTextureName;
+
+			char texPath[280];
+			sprintf(texPath, "../MAPS/%s", diffuseTextureName);
+
+			noesisTex_t *tex = rapi->Noesis_LoadExternalTex(texPath);
+
+			if (tex != NULL)
+			{
+				texList.Append(tex);
+				mat->texIdx = texList.Num()-1;
+			}			
+		}
+
+		if (mtl.flags & MTL_OPACITYTEX && !(mtl.flags & MTL_IMAGEALPHA))
+		{
+			BYTE opacityTextureNameLength = bs->ReadByte();
+
+			if (opacityTextureNameLength > 0) 
+			{
+				char *opacityTextureName = new char[opacityTextureNameLength];
+				bs->ReadString(opacityTextureName, opacityTextureNameLength);
+			}	
+		}
+
+		matList.Append(mat);
 	}
 }
 
 noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noeRAPI_t *rapi)
 {
-	Model_ReadMaterials(fileBuffer, rapi);
+	RichBitStream *bs = new RichBitStream(fileBuffer, bufferLen);
+
+	modelHdr_t hdr;
+	bs->ReadBytes(&hdr, sizeof(modelHdr_t));
+	
 	void *pgctx = rapi->rpgCreateContext();
-	rapi->rpgEnd();
+
+	CArrayList<noesisTex_t *> texList;
+	CArrayList<noesisMaterial_t *> matList;
+	Model_ReadMaterials(bs, rapi, texList, matList);
+
+	UINT16 numNodes;
+	bs->ReadBytes(&numNodes, 2);
+
+	CArrayList<RichVec3> positions;
+
+	for (int i = 0; i < numNodes; i++)
+	{
+		BYTE frameType = bs->ReadByte();
+
+		if (frameType == FRAME_VISUAL) 
+		{
+			BYTE visualType = bs->ReadByte();
+			UINT16 visualFlags;
+			bs->ReadBytes(&visualFlags, 2);
+		}
+
+		UINT16 parentID;
+		bs->ReadBytes(&parentID, 2);
+
+		RichVec3 position, scale;
+		bs->ReadBytes(&position, sizeof(RichVec3));
+		bs->ReadBytes(&scale, sizeof(RichVec3));
+		
+		quat_wxyz_t rotation;
+		bs->ReadBytes(&rotation, sizeof(quat_wxyz_t));
+
+		if (parentID != 0)
+		{
+			RichVec3 parentPos = positions[parentID-1];
+			position += parentPos;
+		}
+
+		positions.Append(position);
+
+		RichMat43 pos = RichMat43(RichVec3(1,0,0), RichVec3(0,1,0), RichVec3(0,0,1), position);
+		RichMat43 scal = RichMat43(RichVec3(scale.v[0],0,0), RichVec3(0,scale.v[1],0), RichVec3(0,0,scale.v[2]), RichVec3(0,0,0));
+		RichMat43 rot = rotation.ToQuat().ToMat43(); //I haven't figured out yet how to properly apply rotations to a model
+
+		RichMat43 trans = pos*scal;
+		rapi->rpgSetTransform(&trans.m);
+
+		//rapi->rpgSetTransform(&scal.m);
+		//rapi->rpgSetTransform(&rot.m);
+		//rapi->rpgSetTransform(&pos.m);		
+
+		BYTE cullingFlags = bs->ReadByte(); 
+
+		BYTE nameLength = bs->ReadByte();
+		if (nameLength > 0)
+		{
+			char *nodeName = new char[nameLength];
+			bs->ReadString(nodeName, nameLength+1);
+
+			rapi->rpgSetName(nodeName);			
+		}
+
+		BYTE userPropertiesLength = bs->ReadByte();
+		if (userPropertiesLength > 0)
+		{
+			char *userProperties = new char[userPropertiesLength];
+			bs->ReadString(userProperties, userPropertiesLength+1);
+		}
+
+		if (frameType == FRAME_VISUAL) 
+		{		
+			//read obj
+			UINT16 instanceID;
+			bs->ReadBytes(&instanceID, 2);
+
+			if (instanceID == 0)
+			{
+				BYTE numLODs = bs->ReadByte();				
+					
+				for (int j = 0; j < numLODs; j++)
+				{
+					float clippingRange = bs->ReadFloat();
+					UINT16 numVerts;
+					bs->ReadBytes(&numVerts, 2);
+
+					vert_t *verts = new vert_t[numVerts];
+					bs->ReadBytes(verts, numVerts*sizeof(vert_t));	
+
+					rapi->rpgBindPositionBuffer(verts[0].pos.v, RPGEODATA_FLOAT, sizeof(vert_t));
+					rapi->rpgBindNormalBuffer(verts[0].norm.v, RPGEODATA_FLOAT, sizeof(vert_t));
+					rapi->rpgBindUV1Buffer(verts[0].uv, RPGEODATA_FLOAT, sizeof(vert_t));
+					
+					BYTE numFaceGroups = bs->ReadByte();					
+
+					for (int k = 0; k < numFaceGroups; k++) 
+					{
+						UINT16 numFaces;
+						bs->ReadBytes(&numFaces, 2);
+
+						face_t *faces = new face_t[numFaces];
+						bs->ReadBytes(faces, numFaces*sizeof(face_t));
+
+						UINT16 mtlID;
+						bs->ReadBytes(&mtlID, 2);
+
+						rapi->rpgSetMaterialIndex(mtlID-1);
+						rapi->rpgCommitTriangles(faces, RPGEODATA_USHORT, numFaces*3, RPGEO_TRIANGLE, true);
+					}
+					rapi->rpgClearBufferBinds();
+				}
+			}
+		}
+		else if (frameType == FRAME_DUMMY)
+		{
+			RichVec3 min, max;
+			bs->ReadBytes(&min, sizeof(RichVec3));
+			bs->ReadBytes(&max, sizeof(RichVec3));
+
+			//draw a cube
+			/*float color[3] = {0.9, 0.9, 0.9};
+
+			rapi->rpgBegin(RPGEO_QUAD);
+			rapi->rpgVertColor3f(color);
+			rapi->rpgVertex3f(min.v);
+			rapi->rpgVertex3f(RichVec3(min.v[0], min.v[1], max.v[2]).v);
+			rapi->rpgVertex3f(RichVec3(min.v[0], max.v[1], min.v[2]).v);	
+			rapi->rpgVertex3f(RichVec3(min.v[0], max.v[1], max.v[2]).v);
+			rapi->rpgEnd();
+
+			rapi->rpgBegin(RPGEO_QUAD);
+			rapi->rpgVertColor3f(color);
+			rapi->rpgVertex3f(min.v);
+			rapi->rpgVertex3f(RichVec3(min.v[0], min.v[1], max.v[2]).v);
+			rapi->rpgVertex3f(RichVec3(max.v[0], min.v[1], min.v[2]).v);
+			rapi->rpgVertex3f(RichVec3(max.v[0], min.v[1], max.v[2]).v);
+			rapi->rpgEnd();
+
+			rapi->rpgBegin(RPGEO_QUAD);
+			rapi->rpgVertColor3f(color);
+			rapi->rpgVertex3f(min.v);
+			rapi->rpgVertex3f(RichVec3(max.v[0], min.v[1], min.v[2]).v);
+			rapi->rpgVertex3f(RichVec3(min.v[0], max.v[1], min.v[2]).v);
+			rapi->rpgVertex3f(RichVec3(max.v[0], max.v[1], min.v[2]).v);
+			rapi->rpgEnd();*/
+			
+		}
+		else if (frameType == FRAME_SECTOR)
+		{
+		}
+	}
+
+	if (texList.Num() > 0)
+	{
+		noesisMatData_t *md = rapi->Noesis_GetMatDataFromLists(matList, texList);
+		rapi->rpgSetExData_Materials(md);
+	}
+
+	rapi->rpgOptimize();
+	//4DS uses a different handedness
+	rapi->rpgSetOption(RPGOPT_SWAPHANDEDNESS, true);
 	noesisModel_t *mdl = rapi->rpgConstructModel();
+	if (mdl)
+	{
+		numMdl = 1; //it's important to set this on success! you can set it to > 1 if you have more than 1 contiguous model in memory
+		float mdlAngOfs[3] = {0.0f, 90.0f, 270.0f};
+		//rapi->SetPreviewAngOfs(mdlAngOfs);
+		//rapi->SetPreviewOption("noTextureLoad", "1");
+	}
 	rapi->rpgDestroyContext(pgctx);
 	return mdl;
 }
