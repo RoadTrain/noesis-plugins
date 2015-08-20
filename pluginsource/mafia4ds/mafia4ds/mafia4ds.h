@@ -9,6 +9,13 @@ typedef struct modelHdr
 	UINT64 timestamp;
 } modelHdr_t;
 
+enum FileVersion 
+{
+	VERSION_MAFIA     = 29,
+	VERSION_HD2       = 41,
+	VERSION_CHAMELEON = 42
+};
+
 enum FrameType
 {
     FRAME_VISUAL    = 1,
@@ -54,20 +61,41 @@ enum mtlFlags
     MTL_OPACITYTEX      = (1 << 30)
 };
 
-typedef struct mtl 
+typedef struct color_s
 {
-	UINT32 flags;
-	float ambient[3];
-	float diffuse[3];
-	float emissive[3];
-	float opacity;
-} mtl_t;
+	float r,g,b;
+} color_t;
 
-typedef struct mafiaMtl 
+typedef struct mafiaMtl_s
 {
-	mtl_t *mtl;
-	char * diffuseTextureName;
+	color_t ambient;
+	color_t diffuse;
+	color_t emissive;
+	float opacity;
 } mafiaMtl_t;
+
+typedef struct chamMtl_s
+{
+	color_t ambient;
+	INT32 unk1;
+	color_t diffuse;
+	INT32 unk2;
+	color_t specular;
+	INT32 unk3;
+	color_t emissive;
+	INT32 unk4;
+	float shininess;
+	float opacity;
+} chamMtl_t;
+
+typedef struct mtlAnim_s
+{
+	UINT32 numFrames;
+	UINT16 unknown;
+	UINT32 delay;
+    UINT32 unknown2;
+    UINT32 unknown3;
+} mtlAnim_t;
 
 typedef struct quat_wxyz_s
 {

@@ -17,7 +17,7 @@ bool Model_TypeCheck(BYTE *fileBuffer, int bufferLen, noeRAPI_t *rapi)
 	{
 		return false;
 	}
-	if (hdr->ver != 29)
+	if (hdr->ver != VERSION_MAFIA && hdr->ver != VERSION_HD2 && hdr->ver != VERSION_CHAMELEON)
 	{
 		return false;
 	}
@@ -25,23 +25,29 @@ bool Model_TypeCheck(BYTE *fileBuffer, int bufferLen, noeRAPI_t *rapi)
 	return true;
 }
 
-void Model_ReadMaterials(RichBitStream *bs, noeRAPI_t *rapi, CArrayList<noesisTex_t *> &texList, CArrayList<noesisMaterial_t *> &matList) 
+void Model_ReadMaterials(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi, CArrayList<noesisTex_t *> &texList, CArrayList<noesisMaterial_t *> &matList) 
 {	
 	short matNum;
 	bs->ReadBytes(&matNum, 2);
 
-	HWND wnd = g_nfn->NPAPI_GetMainWnd();
-
 	for (int i = 0; i < matNum; i++) 
 	{
-		mafiaMtl_t mafiaMtl;
-		mtl_t mtl;
-		bs->ReadBytes(&mtl, sizeof(mtl_t));
-		mafiaMtl.mtl = &mtl;
+		UINT32 flags = bs->ReadInt();
+
+		if (ver == VERSION_MAFIA)
+		{
+			mafiaMtl_t mtl;
+			bs->ReadBytes(&mtl, sizeof(mafiaMtl_t));
+		}
+		else
+		{
+			chamMtl_t mtl;
+			bs->ReadBytes(&mtl, sizeof(chamMtl_t));
+		}
 
 		noesisMaterial_t *mat = rapi->Noesis_GetMaterialList(1, true);
 
-		if (mtl.flags & MTL_REFLECTIONTEX) 
+		if (flags & MTL_REFLECTIONTEX) 
 		{
 			float reflection = bs->ReadFloat();
 			BYTE reflectionTextureNameLength = bs->ReadByte();
@@ -74,7 +80,7 @@ void Model_ReadMaterials(RichBitStream *bs, noeRAPI_t *rapi, CArrayList<noesisTe
 			}			
 		}
 
-		if (mtl.flags & MTL_OPACITYTEX && !(mtl.flags & MTL_IMAGEALPHA))
+		if (flags & MTL_OPACITYTEX && !(flags & MTL_IMAGEALPHA))
 		{
 			BYTE opacityTextureNameLength = bs->ReadByte();
 
@@ -83,6 +89,17 @@ void Model_ReadMaterials(RichBitStream *bs, noeRAPI_t *rapi, CArrayList<noesisTe
 				char *opacityTextureName = new char[opacityTextureNameLength];
 				bs->ReadString(opacityTextureName, opacityTextureNameLength);
 			}	
+		}
+
+		if (flags & MTL_OPACITYTEX_ANIM)
+		{
+			mtlAnim_t opacityTextureAnimation;
+			bs->ReadBytes(&opacityTextureAnimation, sizeof(mtlAnim_t));
+		}
+		else if (flags & MTL_DIFFUSETEX_ANIM)
+        {
+			mtlAnim_t diffuseTextureAnimation;
+			bs->ReadBytes(&diffuseTextureAnimation, sizeof(mtlAnim_t));
 		}
 
 		matList.Append(mat);
@@ -100,7 +117,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 
 	CArrayList<noesisTex_t *> texList;
 	CArrayList<noesisMaterial_t *> matList;
-	Model_ReadMaterials(bs, rapi, texList, matList);
+	Model_ReadMaterials(hdr.ver, bs, rapi, texList, matList);
 
 	UINT16 numNodes;
 	bs->ReadBytes(&numNodes, 2);
@@ -122,11 +139,27 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 		bs->ReadBytes(&parentID, 2);
 
 		RichVec3 position, scale;
+		RichQuat rotation;
 		bs->ReadBytes(&position, sizeof(RichVec3));
-		bs->ReadBytes(&scale, sizeof(RichVec3));
-		
-		quat_wxyz_t rotation;
-		bs->ReadBytes(&rotation, sizeof(quat_wxyz_t));
+
+		if (hdr.ver == VERSION_MAFIA)
+		{
+			bs->ReadBytes(&scale, sizeof(RichVec3));
+
+			quat_wxyz_t quat_wxyz;
+			bs->ReadBytes(&quat_wxyz, sizeof(quat_wxyz_t));
+			rotation = quat_wxyz.ToQuat();
+		}
+		else
+		{
+			bs->ReadBytes(&rotation, sizeof(RichVec3));
+			bs->ReadBytes(&scale, sizeof(RichVec3));
+
+			if (hdr.ver == VERSION_HD2)
+			{
+				bs->ReadInt(); //unknown
+			}
+		}		
 
 		if (parentID != 0)
 		{
@@ -138,7 +171,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 
 		RichMat43 pos = RichMat43(RichVec3(1,0,0), RichVec3(0,1,0), RichVec3(0,0,1), position);
 		RichMat43 scal = RichMat43(RichVec3(scale.v[0],0,0), RichVec3(0,scale.v[1],0), RichVec3(0,0,scale.v[2]), RichVec3(0,0,0));
-		RichMat43 rot = rotation.ToQuat().ToMat43(); //I haven't figured out yet how to properly apply rotations to a model
+		RichMat43 rot = rotation.ToMat43(); //I haven't figured out yet how to properly apply rotations to a model
 
 		RichMat43 trans = pos*scal;
 		rapi->rpgSetTransform(&trans.m);
@@ -178,6 +211,12 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 				for (int j = 0; j < numLODs; j++)
 				{
 					float clippingRange = bs->ReadFloat();
+
+					if (hdr.ver != VERSION_MAFIA)
+					{
+						UINT32 extraDataLength = bs->ReadInt();
+					}
+
 					UINT16 numVerts;
 					bs->ReadBytes(&numVerts, 2);
 
@@ -212,7 +251,14 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 		{
 			RichVec3 min, max;
 			bs->ReadBytes(&min, sizeof(RichVec3));
+
+			if (hdr.ver == VERSION_HD2)
+				bs->ReadInt();
+
 			bs->ReadBytes(&max, sizeof(RichVec3));
+
+			if (hdr.ver == VERSION_HD2)
+				bs->ReadInt();
 
 			//draw a cube
 			/*float color[3] = {0.9, 0.9, 0.9};
@@ -253,7 +299,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 		rapi->rpgSetExData_Materials(md);
 	}
 
-	rapi->rpgOptimize();
+	//rapi->rpgOptimize();
 	//4DS uses a different handedness
 	rapi->rpgSetOption(RPGOPT_SWAPHANDEDNESS, true);
 	noesisModel_t *mdl = rapi->rpgConstructModel();
