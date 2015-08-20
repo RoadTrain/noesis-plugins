@@ -87,7 +87,7 @@ void Model_ReadMaterials(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi, CArrayL
 			if (opacityTextureNameLength > 0) 
 			{
 				char *opacityTextureName = new char[opacityTextureNameLength];
-				bs->ReadString(opacityTextureName, opacityTextureNameLength);
+				bs->ReadString(opacityTextureName, opacityTextureNameLength+1);
 			}	
 		}
 
