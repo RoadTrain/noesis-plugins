@@ -389,3 +389,53 @@ void Model_ReadDummy(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi)
 	rapi->rpgEnd();*/
 			
 }
+
+// reads a target
+void Model_ReadTarget(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi)
+{
+	UINT16 unk;
+	bs->ReadBytes(&unk, 2);
+
+	BYTE numLinks = bs->ReadByte();
+
+	UINT16 *links = new UINT16[numLinks];
+	bs->ReadBytes(links, numLinks*sizeof(UINT16));
+}
+
+// reads a joint
+void Model_ReadJoint(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi)
+{
+	if (ver == VERSION_MAFIA)
+	{
+		RichMat44 matrix;
+		bs->ReadBytes(&matrix, sizeof(RichMat44));
+	}
+
+	UINT32 ID = bs->ReadInt();
+}
+
+// reads an occluder
+void Model_ReadOccluder(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi)
+{
+	UINT32 numVerts = bs->ReadInt();
+	UINT32 numFaces = bs->ReadInt();
+
+	if (ver == VERSION_HD2)
+	{
+		RichVec4 *verts = new RichVec4[numVerts];
+		bs->ReadBytes(verts, numVerts*sizeof(RichVec4));
+		rapi->rpgBindPositionBuffer(verts[0].v, RPGEODATA_FLOAT, sizeof(RichVec4));
+	}
+	else
+	{
+		RichVec3 *verts = new RichVec3[numVerts];
+		bs->ReadBytes(verts, numVerts*sizeof(RichVec3));
+		rapi->rpgBindPositionBuffer(verts[0].v, RPGEODATA_FLOAT, sizeof(RichVec3));
+	}
+
+	face_t *faces = new face_t[numFaces];
+	bs->ReadBytes(faces, numVerts*sizeof(face_t));
+
+	rapi->rpgCommitTriangles(faces, RPGEODATA_USHORT, numFaces*3, RPGEO_TRIANGLE, true);
+	rapi->rpgClearBufferBinds();
+}
