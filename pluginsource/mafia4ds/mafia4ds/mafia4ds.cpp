@@ -1,8 +1,14 @@
 #include "stdafx.h"
 #include "mafia4ds.h"
 
+extern void Model_ReadMaterials(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi, CArrayList<noesisTex_t *> &texList, CArrayList<noesisMaterial_t *> &matList);
+extern void Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *rapi, bool singleMesh = false);
+extern void Model_ReadMorph(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
+extern void Model_ReadSector(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
+extern void Model_ReadDummy(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
+
 const char *g_pPluginName = "mafia4ds";
-const char *g_pPluginDesc = "Mafia 4DS format handler, by RoadTrain.";
+const char *g_pPluginDesc = "Mafia/HD2/Chameleon 4DS format handler, by RoadTrain.";
 int g_fmtHandle = -1;
 
 //check whether it's 4ds
@@ -25,87 +31,6 @@ bool Model_TypeCheck(BYTE *fileBuffer, int bufferLen, noeRAPI_t *rapi)
 	return true;
 }
 
-void Model_ReadMaterials(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi, CArrayList<noesisTex_t *> &texList, CArrayList<noesisMaterial_t *> &matList) 
-{	
-	short matNum;
-	bs->ReadBytes(&matNum, 2);
-
-	for (int i = 0; i < matNum; i++) 
-	{
-		UINT32 flags = bs->ReadInt();
-
-		if (ver == VERSION_MAFIA)
-		{
-			mafiaMtl_t mtl;
-			bs->ReadBytes(&mtl, sizeof(mafiaMtl_t));
-		}
-		else
-		{
-			chamMtl_t mtl;
-			bs->ReadBytes(&mtl, sizeof(chamMtl_t));
-		}
-
-		noesisMaterial_t *mat = rapi->Noesis_GetMaterialList(1, true);
-
-		if (flags & MTL_REFLECTIONTEX) 
-		{
-			float reflection = bs->ReadFloat();
-			BYTE reflectionTextureNameLength = bs->ReadByte();
-
-			if (reflectionTextureNameLength > 0) 
-			{
-				char *reflectionTextureName = new char[reflectionTextureNameLength];
-				bs->ReadString(reflectionTextureName, reflectionTextureNameLength+1);
-			}			
-		}
-
-		BYTE diffuseTextureNameLength = bs->ReadByte();
-				
-		if (diffuseTextureNameLength > 0) 
-		{
-			char *diffuseTextureName = new char[diffuseTextureNameLength];
-			bs->ReadString(diffuseTextureName, diffuseTextureNameLength+1);
-
-			mat->name = diffuseTextureName;
-
-			char texPath[280];
-			sprintf(texPath, "../MAPS/%s", diffuseTextureName);
-
-			noesisTex_t *tex = rapi->Noesis_LoadExternalTex(texPath);
-
-			if (tex != NULL)
-			{
-				texList.Append(tex);
-				mat->texIdx = texList.Num()-1;
-			}			
-		}
-
-		if (flags & MTL_OPACITYTEX && !(flags & MTL_IMAGEALPHA))
-		{
-			BYTE opacityTextureNameLength = bs->ReadByte();
-
-			if (opacityTextureNameLength > 0) 
-			{
-				char *opacityTextureName = new char[opacityTextureNameLength];
-				bs->ReadString(opacityTextureName, opacityTextureNameLength+1);
-			}	
-		}
-
-		if (flags & MTL_OPACITYTEX_ANIM)
-		{
-			mtlAnim_t opacityTextureAnimation;
-			bs->ReadBytes(&opacityTextureAnimation, sizeof(mtlAnim_t));
-		}
-		else if (flags & MTL_DIFFUSETEX_ANIM)
-        {
-			mtlAnim_t diffuseTextureAnimation;
-			bs->ReadBytes(&diffuseTextureAnimation, sizeof(mtlAnim_t));
-		}
-
-		matList.Append(mat);
-	}
-}
-
 noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noeRAPI_t *rapi)
 {
 	RichBitStream *bs = new RichBitStream(fileBuffer, bufferLen);
@@ -122,15 +47,16 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 	UINT16 numNodes;
 	bs->ReadBytes(&numNodes, 2);
 
-	CArrayList<RichVec3> positions;
+	CArrayList<transform_t> transforms;
 
 	for (int i = 0; i < numNodes; i++)
 	{
 		BYTE frameType = bs->ReadByte();
+		BYTE visualType;
 
 		if (frameType == FRAME_VISUAL) 
 		{
-			BYTE visualType = bs->ReadByte();
+			visualType = bs->ReadByte();
 			UINT16 visualFlags;
 			bs->ReadBytes(&visualFlags, 2);
 		}
@@ -152,28 +78,34 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 		}
 		else
 		{
-			bs->ReadBytes(&rotation, sizeof(RichVec3));
+			bs->ReadBytes(&rotation, sizeof(RichQuat));
 			bs->ReadBytes(&scale, sizeof(RichVec3));
 
 			if (hdr.ver == VERSION_HD2)
 			{
 				bs->ReadInt(); //unknown
 			}
-		}		
+		}
 
 		if (parentID != 0)
 		{
-			RichVec3 parentPos = positions[parentID-1];
-			position += parentPos;
+			transform_t transform = transforms[parentID-1];			
+			position += transform.position;
+			scale *= transform.scale;
+			rotation *= transform.rotation;
 		}
-
-		positions.Append(position);
+		
+		transform_t transform;
+		transform.position = position;
+		transform.scale = scale;
+		transform.rotation = rotation;
+		transforms.Append(transform);
 
 		RichMat43 pos = RichMat43(RichVec3(1,0,0), RichVec3(0,1,0), RichVec3(0,0,1), position);
 		RichMat43 scal = RichMat43(RichVec3(scale.v[0],0,0), RichVec3(0,scale.v[1],0), RichVec3(0,0,scale.v[2]), RichVec3(0,0,0));
 		RichMat43 rot = rotation.ToMat43(); //I haven't figured out yet how to properly apply rotations to a model
 
-		RichMat43 trans = pos*scal;
+		RichMat43 trans = pos*rot*scal;
 		rapi->rpgSetTransform(&trans.m);
 
 		//rapi->rpgSetTransform(&scal.m);
@@ -183,117 +115,95 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 		BYTE cullingFlags = bs->ReadByte(); 
 
 		BYTE nameLength = bs->ReadByte();
+		
+		char nodeName[256];
 		if (nameLength > 0)
 		{
-			char *nodeName = new char[nameLength];
 			bs->ReadString(nodeName, nameLength+1);
 
-			rapi->rpgSetName(nodeName);			
+			rapi->rpgSetName(nodeName);
 		}
 
 		BYTE userPropertiesLength = bs->ReadByte();
 		if (userPropertiesLength > 0)
 		{
-			char *userProperties = new char[userPropertiesLength];
+			char userProperties[255];
 			bs->ReadString(userProperties, userPropertiesLength+1);
 		}
 
 		if (frameType == FRAME_VISUAL) 
-		{		
-			//read obj
-			UINT16 instanceID;
-			bs->ReadBytes(&instanceID, 2);
-
-			if (instanceID == 0)
+		{
+			if (visualType == VISUAL_OBJECT)
 			{
-				BYTE numLODs = bs->ReadByte();				
-					
-				for (int j = 0; j < numLODs; j++)
+				Model_ReadObject(hdr.ver, nodeName, bs, rapi);
+			}
+			else if (visualType == VISUAL_SINGLEMESH)
+			{
+				Model_ReadObject(hdr.ver, nodeName, bs, rapi, true);
+			}
+			else if (visualType == VISUAL_SINGLEMORPH)
+			{
+				Model_ReadObject(hdr.ver, nodeName, bs, rapi, true);
+				Model_ReadMorph(hdr.ver, bs, rapi);
+			}
+			else if (visualType == VISUAL_BILLBOARD)
+			{
+				Model_ReadObject(hdr.ver, nodeName, bs, rapi);
+				UINT32 axis = bs->ReadInt();
+				BYTE axisMode = bs->ReadByte();
+			}
+			else if (visualType == VISUAL_MORPH)
+			{
+				Model_ReadObject(hdr.ver, nodeName, bs, rapi);
+				Model_ReadMorph(hdr.ver, bs, rapi);
+			}
+			else if (visualType == VISUAL_LENS)
+			{
+				BYTE numGlows = bs->ReadByte();
+
+				for (int i = 0; i < numGlows; i++)
 				{
-					float clippingRange = bs->ReadFloat();
+					float position = bs->ReadFloat();
 
 					if (hdr.ver != VERSION_MAFIA)
-					{
-						UINT32 extraDataLength = bs->ReadInt();
-					}
+						float scale = bs->ReadFloat();
 
-					UINT16 numVerts;
-					bs->ReadBytes(&numVerts, 2);
-
-					vert_t *verts = new vert_t[numVerts];
-					bs->ReadBytes(verts, numVerts*sizeof(vert_t));	
-
-					rapi->rpgBindPositionBuffer(verts[0].pos.v, RPGEODATA_FLOAT, sizeof(vert_t));
-					rapi->rpgBindNormalBuffer(verts[0].norm.v, RPGEODATA_FLOAT, sizeof(vert_t));
-					rapi->rpgBindUV1Buffer(verts[0].uv, RPGEODATA_FLOAT, sizeof(vert_t));
-					
-					BYTE numFaceGroups = bs->ReadByte();					
-
-					for (int k = 0; k < numFaceGroups; k++) 
-					{
-						UINT16 numFaces;
-						bs->ReadBytes(&numFaces, 2);
-
-						face_t *faces = new face_t[numFaces];
-						bs->ReadBytes(faces, numFaces*sizeof(face_t));
-
-						UINT16 mtlID;
-						bs->ReadBytes(&mtlID, 2);
-
-						rapi->rpgSetMaterialIndex(mtlID-1);
-						rapi->rpgCommitTriangles(faces, RPGEODATA_USHORT, numFaces*3, RPGEO_TRIANGLE, true);
-					}
-					rapi->rpgClearBufferBinds();
+					UINT16 mtlID;
+					bs->ReadBytes(&mtlID, 2);
 				}
 			}
-		}
-		else if (frameType == FRAME_DUMMY)
-		{
-			RichVec3 min, max;
-			bs->ReadBytes(&min, sizeof(RichVec3));
-
-			if (hdr.ver == VERSION_HD2)
-				bs->ReadInt();
-
-			bs->ReadBytes(&max, sizeof(RichVec3));
-
-			if (hdr.ver == VERSION_HD2)
-				bs->ReadInt();
-
-			//draw a cube
-			/*float color[3] = {0.9, 0.9, 0.9};
-
-			rapi->rpgBegin(RPGEO_QUAD);
-			rapi->rpgVertColor3f(color);
-			rapi->rpgVertex3f(min.v);
-			rapi->rpgVertex3f(RichVec3(min.v[0], min.v[1], max.v[2]).v);
-			rapi->rpgVertex3f(RichVec3(min.v[0], max.v[1], min.v[2]).v);	
-			rapi->rpgVertex3f(RichVec3(min.v[0], max.v[1], max.v[2]).v);
-			rapi->rpgEnd();
-
-			rapi->rpgBegin(RPGEO_QUAD);
-			rapi->rpgVertColor3f(color);
-			rapi->rpgVertex3f(min.v);
-			rapi->rpgVertex3f(RichVec3(min.v[0], min.v[1], max.v[2]).v);
-			rapi->rpgVertex3f(RichVec3(max.v[0], min.v[1], min.v[2]).v);
-			rapi->rpgVertex3f(RichVec3(max.v[0], min.v[1], max.v[2]).v);
-			rapi->rpgEnd();
-
-			rapi->rpgBegin(RPGEO_QUAD);
-			rapi->rpgVertColor3f(color);
-			rapi->rpgVertex3f(min.v);
-			rapi->rpgVertex3f(RichVec3(max.v[0], min.v[1], min.v[2]).v);
-			rapi->rpgVertex3f(RichVec3(min.v[0], max.v[1], min.v[2]).v);
-			rapi->rpgVertex3f(RichVec3(max.v[0], max.v[1], min.v[2]).v);
-			rapi->rpgEnd();*/
-			
+			else if (visualType == VISUAL_MIRROR)
+			{
+				
+			}
+			else
+			{
+				rapi->LogOutput("Unknown visual object type %d", visualType);
+			}
 		}
 		else if (frameType == FRAME_SECTOR)
 		{
+			Model_ReadSector(hdr.ver, bs, rapi);
+		}
+		else if (frameType == FRAME_DUMMY)
+		{
+			Model_ReadDummy(hdr.ver, bs, rapi);
+		}
+		else if (frameType == FRAME_TARGET)
+		{
+			//Model_ReadTarget(hdr.ver, bs, rapi);
+		}
+		else if (frameType == FRAME_JOINT)
+		{
+			//Model_ReadJoint(hdr.ver, bs, rapi);
+		}
+		else if (frameType == FRAME_OCCLUDER)
+		{
+			//Model_ReadOccluder(hdr.ver, bs, rapi);
 		}
 	}
 
-	if (texList.Num() > 0)
+	if (matList.Num() > 0)
 	{
 		noesisMatData_t *md = rapi->Noesis_GetMatDataFromLists(matList, texList);
 		rapi->rpgSetExData_Materials(md);
@@ -317,7 +227,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 //called by Noesis to init the plugin
 bool NPAPI_InitLocal(void)
 {
-	g_fmtHandle = g_nfn->NPAPI_Register("Mafia 4DS", ".4ds");
+	g_fmtHandle = g_nfn->NPAPI_Register("Mafia/HD2/Chameleon 4DS", ".4ds");
 	if (g_fmtHandle < 0)
 	{
 		return false;
@@ -337,4 +247,12 @@ bool NPAPI_InitLocal(void)
 void NPAPI_ShutdownLocal(void)
 {
 	//nothing to do in this plugin
+}
+
+BOOL APIENTRY DllMain( HMODULE hModule,
+                       DWORD  ul_reason_for_call,
+                       LPVOID lpReserved
+					 )
+{
+    return TRUE;
 }

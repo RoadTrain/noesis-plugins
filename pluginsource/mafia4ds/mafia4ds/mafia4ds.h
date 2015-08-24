@@ -107,6 +107,14 @@ typedef struct quat_wxyz_s
 		return RichQuat(x, y, z, w);
 	}
 } quat_wxyz_t;
+
+typedef struct transform_s
+{
+	RichVec3 position;
+	RichVec3 scale;
+	RichQuat rotation;
+} transform_t;
+
 typedef struct vert_s 
 {
 	RichVec3 pos;
@@ -118,6 +126,18 @@ typedef struct face_s
 {
 	UINT16 i[3];
 } face_t;
+
+typedef struct morphedVert_s 
+{
+	RichVec3 pos;
+	RichVec3 norm;
+} morphedVert_t;
+
+typedef struct weight_s 
+{
+	BYTE boneID;
+	BYTE unk;
+} weight_t;
 
 extern mathImpFn_t *g_mfn;
 extern noePluginFn_t *g_nfn;

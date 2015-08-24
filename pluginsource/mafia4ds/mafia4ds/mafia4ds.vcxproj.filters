@@ -44,6 +44,9 @@
     <ClCompile Include="mafia4ds.cpp">
       <Filter>Файлы исходного кода</Filter>
     </ClCompile>
+    <ClCompile Include="mafia4ds_import.cpp">
+      <Filter>Файлы исходного кода</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="noesisplugin.def">
