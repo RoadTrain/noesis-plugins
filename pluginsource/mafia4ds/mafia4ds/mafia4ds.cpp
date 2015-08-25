@@ -247,6 +247,8 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 		}
 	}
 
+	BYTE has5ds = bs->ReadByte();
+
 	if (matList.Num() > 0)
 	{
 		noesisMatData_t *md = rapi->Noesis_GetMatDataFromLists(matList, texList);

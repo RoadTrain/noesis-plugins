@@ -28,7 +28,6 @@ void Model_ReadMaterials(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi, CArrayL
 
 		if (flags & MTL_REFLECTIONTEX) 
 		{
-			hasTex = true;
 			float reflection = bs->ReadFloat();
 			BYTE reflectionTextureNameLength = bs->ReadByte();
 
