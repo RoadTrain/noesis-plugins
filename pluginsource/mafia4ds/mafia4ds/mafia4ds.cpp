@@ -94,9 +94,9 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 		if (parentID != 0)
 		{
 			transform_t transform = transforms[parentID-1];			
-			position += transform.position;
-			scale *= transform.scale;
-			rotation *= transform.rotation;
+			position = position + transform.position;
+			scale = scale * transform.scale;
+			rotation = rotation * transform.rotation;
 		}
 		
 		transform_t transform;
@@ -109,12 +109,12 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 		RichMat43 scal = RichMat43(RichVec3(scale.v[0],0,0), RichVec3(0,scale.v[1],0), RichVec3(0,0,scale.v[2]), RichVec3(0,0,0));
 		RichMat43 rot = rotation.ToMat43(); //I haven't figured out yet how to properly apply rotations to a model
 
-		RichMat43 trans = pos*rot*scal;
+		RichMat43 trans = scal*rot*pos;
 		rapi->rpgSetTransform(&trans.m);
 
 		//rapi->rpgSetTransform(&scal.m);
 		//rapi->rpgSetTransform(&rot.m);
-		//rapi->rpgSetTransform(&pos.m);		
+		//rapi->rpgSetTransform(&pos.m);
 
 		BYTE cullingFlags = bs->ReadByte(); 
 
