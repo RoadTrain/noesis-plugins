@@ -276,6 +276,58 @@ void Model_ReadMorph(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi)
 	}
 }
 
+// reads a mirror object
+void Model_ReadMirror(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi)
+{
+	if (ver == VERSION_HD2)
+	{
+		RichVec4 min, max;
+		bs->ReadBytes(&min, sizeof(RichVec4));
+		bs->ReadBytes(&max, sizeof(RichVec4));
+	}
+	else
+	{
+		RichVec3 min, max;
+		bs->ReadBytes(&min, sizeof(RichVec3));
+		bs->ReadBytes(&max, sizeof(RichVec3));
+	}
+
+	float unk[4];
+	bs->ReadBytes(unk, 4*sizeof(float));
+
+	RichMat44 reflectionMatrix;
+	bs->ReadBytes(&reflectionMatrix, sizeof(RichMat44));
+
+	color_t color;
+	bs->ReadBytes(&color, sizeof(color_t));
+
+	if (ver == VERSION_HD2)
+		bs->ReadInt();//unknown
+
+	float reflectionStrength = bs->ReadFloat();
+	UINT32 numVerts = bs->ReadInt();
+	UINT32 numFaces = bs->ReadInt();
+
+	if (ver == VERSION_HD2)
+	{
+		RichVec4 *verts = new RichVec4[numVerts];
+		bs->ReadBytes(verts, numVerts*sizeof(RichVec4));
+		rapi->rpgBindPositionBuffer(verts[0].v, RPGEODATA_FLOAT, sizeof(RichVec4));
+	}
+	else
+	{
+		RichVec3 *verts = new RichVec3[numVerts];
+		bs->ReadBytes(verts, numVerts*sizeof(RichVec3));
+		rapi->rpgBindPositionBuffer(verts[0].v, RPGEODATA_FLOAT, sizeof(RichVec3));
+	}
+
+	face_t *faces = new face_t[numFaces];
+	bs->ReadBytes(faces, numFaces*sizeof(face_t));
+	//rapi->rpgSetMaterialIndex(0);
+	rapi->rpgCommitTriangles(faces, RPGEODATA_USHORT, numFaces*3, RPGEO_TRIANGLE, true);
+	rapi->rpgClearBufferBinds();
+}
+
 // reads a light sector from 4ds
 void Model_ReadSector(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi)
 {

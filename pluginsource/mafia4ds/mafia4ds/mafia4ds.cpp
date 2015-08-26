@@ -4,6 +4,7 @@
 extern void Model_ReadMaterials(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi, CArrayList<noesisTex_t *> &texList, CArrayList<noesisMaterial_t *> &matList);
 extern void Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *rapi, bool singleMesh = false);
 extern void Model_ReadMorph(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
+extern void Model_ReadMirror(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
 extern void Model_ReadSector(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
 extern void Model_ReadDummy(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
 extern void Model_ReadTarget(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
@@ -177,48 +178,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 			}
 			else if (visualType == VISUAL_MIRROR)
 			{
-				if (hdr.ver == VERSION_HD2)
-				{
-					RichVec4 min, max;
-					bs->ReadBytes(&min, sizeof(RichVec4));
-					bs->ReadBytes(&max, sizeof(RichVec4));
-				}
-				else
-				{
-					RichVec3 min, max;
-					bs->ReadBytes(&min, sizeof(RichVec3));
-					bs->ReadBytes(&max, sizeof(RichVec3));
-				}
-
-				float unk[4];
-				bs->ReadBytes(unk, 4*sizeof(float));
-
-				RichMat44 reflectionMatrix;
-				bs->ReadBytes(&reflectionMatrix, sizeof(RichMat44));
-
-				color_t color;
-				bs->ReadBytes(&color, sizeof(color_t));
-
-				if (hdr.ver == VERSION_HD2)
-					bs->ReadInt();//unknown
-
-				float reflectionStrength = bs->ReadFloat();
-				UINT32 numVerts = bs->ReadInt();
-				UINT32 numFaces = bs->ReadInt();
-
-				if (hdr.ver == VERSION_HD2)
-				{
-					RichVec4 *verts = new RichVec4[numVerts];
-					bs->ReadBytes(verts, numVerts*sizeof(RichVec4));
-				}
-				else
-				{
-					RichVec3 *verts = new RichVec3[numVerts];
-					bs->ReadBytes(verts, numVerts*sizeof(RichVec3));
-				}
-
-				face_t *faces = new face_t[numFaces];
-				bs->ReadBytes(faces, numVerts*sizeof(face_t));
+				Model_ReadMirror(hdr.ver, bs, rapi);
 			}
 			else
 			{
