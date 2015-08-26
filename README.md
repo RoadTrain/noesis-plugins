@@ -3,4 +3,4 @@ Various format plugins for Noesis http://richwhitehouse.com/index.php?content=in
 
 Place DLL files under plugins directory into your Noesis plugins directory.
 
-Built using Visual Studion 2010, so vs2010redist is a must.
+Built using Visual Studio 2010, so vs2010redist is a must.

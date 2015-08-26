@@ -139,6 +139,53 @@ typedef struct weight_s
 	BYTE unk;
 } weight_t;
 
+// not format-related structs for internal processing
+typedef struct faceGroup_s
+{
+	UINT16 numFaces;
+	UINT16 mtlID;
+	face_t *faces;
+
+	~faceGroup_s()
+    {
+        if (faces) delete[] faces;
+    }
+} faceGroup_t;
+
+typedef struct morphChannel_s
+{
+	UINT16 numVerts;
+	morphedVert_t **verts;
+	UINT16 *vertIndices;
+
+	~morphChannel_s()
+    {
+        if (verts)       delete[] verts;
+		if (vertIndices) delete[] vertIndices;
+    }
+} morphChannel_t;
+
+typedef struct lodData_s
+{
+	char *name;
+	UINT16 numVerts;
+	vert_t *verts;
+
+	BYTE numFaceGroups;
+	faceGroup_t *faceGroups;
+
+	BYTE numTargets;
+	BYTE numChannels;
+	morphChannel_t *channels;
+
+	~lodData_s()
+    {
+        if (verts)      delete[] verts;
+		if (faceGroups) delete[] faceGroups;
+		if (channels)   delete[] channels;
+    }
+} lodData_t;
+
 extern mathImpFn_t *g_mfn;
 extern noePluginFn_t *g_nfn;
 extern int g_fmtHandle;

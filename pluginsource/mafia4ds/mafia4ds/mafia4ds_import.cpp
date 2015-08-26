@@ -96,7 +96,7 @@ void Model_ReadMaterials(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi, CArrayL
 }
 
 // reads a mesh object from 4ds
-void Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *rapi, bool singleMesh = false)
+void Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *rapi, bool singleMesh = false, bool morph = false)
 {
 	UINT16 instanceID;
 	bs->ReadBytes(&instanceID, 2);
@@ -104,6 +104,7 @@ void Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *
 	if (instanceID == 0)
 	{
 		BYTE numLODs = bs->ReadByte();
+		lodData_t *lods = new lodData_t[numLODs]; // we need to gather all LODs data to assign morphing and skeletal animations
 					
 		for (int j = 0; j < numLODs; j++)
 		{
@@ -111,7 +112,7 @@ void Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *
 			{
 				char lodName[260];
 				sprintf_s(lodName, "%s:%d", nodeName, j);
-				rapi->rpgSetName(lodName);
+				lods[j].name = lodName;
 			}
 
 			float clippingRange = bs->ReadFloat();
@@ -123,31 +124,26 @@ void Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *
 
 			UINT16 numVerts;
 			bs->ReadBytes(&numVerts, 2);
+			lods[j].numVerts = numVerts;
 
-			vert_t *verts = new vert_t[numVerts];
-			bs->ReadBytes(verts, numVerts*sizeof(vert_t));	
+			lods[j].verts = new vert_t[numVerts];
+			bs->ReadBytes(lods[j].verts, numVerts*sizeof(vert_t));
 
-			rapi->rpgBindPositionBuffer(verts[0].pos.v, RPGEODATA_FLOAT, sizeof(vert_t));
-			rapi->rpgBindNormalBuffer(verts[0].norm.v, RPGEODATA_FLOAT, sizeof(vert_t));
-			rapi->rpgBindUV1Buffer(verts[0].uv, RPGEODATA_FLOAT, sizeof(vert_t));
-					
-			BYTE numFaceGroups = bs->ReadByte();					
+			BYTE numFaceGroups = bs->ReadByte();
+			lods[j].numFaceGroups = numFaceGroups;
+			lods[j].faceGroups = new faceGroup_t[numFaceGroups];
 
 			for (int k = 0; k < numFaceGroups; k++) 
 			{
 				UINT16 numFaces;
 				bs->ReadBytes(&numFaces, 2);
+				lods[j].faceGroups[k].numFaces = numFaces;
 
-				face_t *faces = new face_t[numFaces];
-				bs->ReadBytes(faces, numFaces*sizeof(face_t));
+				lods[j].faceGroups[k].faces = new face_t[numFaces];
+				bs->ReadBytes(lods[j].faceGroups[k].faces, numFaces*sizeof(face_t));
 
-				UINT16 mtlID;
-				bs->ReadBytes(&mtlID, 2);
-
-				rapi->rpgSetMaterialIndex(mtlID-1);
-				rapi->rpgCommitTriangles(faces, RPGEODATA_USHORT, numFaces*3, RPGEO_TRIANGLE, true);
+				bs->ReadBytes(&lods[j].faceGroups[k].mtlID, 2);
 			}
-			rapi->rpgClearBufferBinds();
 		}
 
 		// read a SINGLEMESH extension (bones and weights)
@@ -229,49 +225,104 @@ void Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *
 				}
 			}
 		}
-	}
-}
 
-// reads morphs
-void Model_ReadMorph(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi)
-{
-	BYTE numTargets = bs->ReadByte();
-	BYTE numChannels = bs->ReadByte();
-	BYTE unknown = bs->ReadByte();
-
-	if (numTargets > 0)
-	{
-		for (int i = 0; i < numChannels; i++)
+		// read morphed vertices
+		if (morph)
 		{
-			UINT16 numVerts;
-			bs->ReadBytes(&numVerts, 2);
+			BYTE numTargets = bs->ReadByte();
+			BYTE numChannels = bs->ReadByte();
+			BYTE unknown = bs->ReadByte();
 
-			if (numVerts > 0)
+			lods[0].numTargets = numTargets;
+			lods[0].numChannels = numChannels;
+
+			lods[0].channels = new morphChannel_t[numChannels];
+
+			if (numTargets > 0)
 			{
-				for (int j = 0; j < numTargets; j++)
+				for (int i = 0; i < numChannels; i++)
 				{
-					morphedVert_t *verts = new morphedVert_t[numVerts];
-					bs->ReadBytes(verts, numVerts*sizeof(morphedVert_t));
+					UINT16 numVerts;
+					bs->ReadBytes(&numVerts, 2);
+					lods[0].channels[i].numVerts = numVerts;
+
+					if (numVerts > 0)
+					{
+						lods[0].channels[i].verts = new morphedVert_t*[numTargets];
+
+						for (int j = 0; j < numTargets; j++)
+						{
+							lods[0].channels[i].verts[j] = new morphedVert_t[numVerts];
+							bs->ReadBytes(lods[0].channels[i].verts[j], numVerts*sizeof(morphedVert_t));
+						}
+
+						BYTE unk = bs->ReadByte(); //unknown
+						if (unk != 0)
+						{
+							lods[0].channels[i].vertIndices = new UINT16[numVerts];
+							bs->ReadBytes(lods[0].channels[i].vertIndices, numVerts*sizeof(UINT16));
+						}
+					}
 				}
 
-				BYTE unk = bs->ReadByte(); //unknown
-				if (unk != 0)
+				if (ver == VERSION_HD2)
 				{
-					UINT16 *vertIndices = new UINT16[numVerts];
-					bs->ReadBytes(vertIndices, numVerts*sizeof(UINT16));
+					float unknown2[12];
+					bs->ReadBytes(unknown2, 12*sizeof(float));
+				}
+				else
+				{
+					float unknown2[10];
+					bs->ReadBytes(unknown2, 10*sizeof(float));
 				}
 			}
 		}
 
-		if (ver == VERSION_HD2)
+		for (int i = 0; i < numLODs; i++)
 		{
-			float unknown2[12];
-			bs->ReadBytes(unknown2, 12*sizeof(float));
-		}
-		else
-		{
-			float unknown2[10];
-			bs->ReadBytes(unknown2, 10*sizeof(float));
+			if (i > 0)
+				rapi->rpgSetName(lods[i].name);
+
+			rapi->rpgBindPositionBuffer(lods[i].verts[0].pos.v, RPGEODATA_FLOAT, sizeof(vert_t));
+			rapi->rpgBindNormalBuffer(lods[i].verts[0].norm.v, RPGEODATA_FLOAT, sizeof(vert_t));
+			rapi->rpgBindUV1Buffer(lods[i].verts[0].uv, RPGEODATA_FLOAT, sizeof(vert_t));
+
+			HWND wnd = g_nfn->NPAPI_GetMainWnd();
+
+			//morphing
+			if (morph)
+			{
+				for (int j = 0; j < lods[i].numTargets; j++)
+				{
+					UINT16 numVerts = lods[i].numVerts;
+					vert_t *morphedVerts = new vert_t[numVerts];
+					memcpy(morphedVerts, lods[i].verts, numVerts*sizeof(vert_t));
+
+					for (int k = 0; k < lods[i].channels[0].numVerts; k++)
+					{
+						INT16 vertId = lods[i].channels[0].vertIndices[k];
+						morphedVert_t morphedVert = lods[i].channels[0].verts[j][k];
+						morphedVerts[vertId].pos  = morphedVert.pos;
+						morphedVerts[vertId].norm = morphedVert.norm;
+					}
+
+					rapi->rpgFeedMorphTargetPositions(morphedVerts[0].pos.v, RPGEODATA_FLOAT, sizeof(vert_t));
+					rapi->rpgFeedMorphTargetNormals(morphedVerts[0].norm.v, RPGEODATA_FLOAT, sizeof(vert_t));
+					rapi->rpgCommitMorphFrame(numVerts);
+
+					//wchar_t *buf = new wchar_t[10];
+					//swprintf(buf, L"%d", numVerts);
+					//MessageBox(wnd, buf, L"MD2 Exporter", MB_YESNO);
+				}
+				rapi->rpgCommitMorphFrameSet();				
+			}
+
+			for (int j = 0; j < lods[i].numFaceGroups; j++)
+			{
+				rapi->rpgSetMaterialIndex(lods[i].faceGroups[j].mtlID-1);
+				rapi->rpgCommitTriangles(lods[i].faceGroups[j].faces, RPGEODATA_USHORT, lods[i].faceGroups[j].numFaces*3, RPGEO_TRIANGLE, true);
+			}
+			rapi->rpgClearBufferBinds();
 		}
 	}
 }

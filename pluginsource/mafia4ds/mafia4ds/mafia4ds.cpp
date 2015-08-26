@@ -2,8 +2,7 @@
 #include "mafia4ds.h"
 
 extern void Model_ReadMaterials(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi, CArrayList<noesisTex_t *> &texList, CArrayList<noesisMaterial_t *> &matList);
-extern void Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *rapi, bool singleMesh = false);
-extern void Model_ReadMorph(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
+extern void Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *rapi, bool singleMesh = false, bool morph = false);
 extern void Model_ReadMirror(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
 extern void Model_ReadSector(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
 extern void Model_ReadDummy(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
@@ -107,7 +106,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 
 		RichMat43 pos = RichMat43(RichVec3(1,0,0), RichVec3(0,1,0), RichVec3(0,0,1), position);
 		RichMat43 scal = RichMat43(RichVec3(scale.v[0],0,0), RichVec3(0,scale.v[1],0), RichVec3(0,0,scale.v[2]), RichVec3(0,0,0));
-		RichMat43 rot = rotation.ToMat43(); //I haven't figured out yet how to properly apply rotations to a model
+		RichMat43 rot = rotation.ToMat43(); 
 
 		RichMat43 trans = scal*rot*pos;
 		rapi->rpgSetTransform(&trans.m);
@@ -147,8 +146,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 			}
 			else if (visualType == VISUAL_SINGLEMORPH)
 			{
-				Model_ReadObject(hdr.ver, nodeName, bs, rapi, true);
-				Model_ReadMorph(hdr.ver, bs, rapi);
+				Model_ReadObject(hdr.ver, nodeName, bs, rapi, true, true);
 			}
 			else if (visualType == VISUAL_BILLBOARD)
 			{
@@ -158,8 +156,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 			}
 			else if (visualType == VISUAL_MORPH)
 			{
-				Model_ReadObject(hdr.ver, nodeName, bs, rapi);
-				Model_ReadMorph(hdr.ver, bs, rapi);
+				Model_ReadObject(hdr.ver, nodeName, bs, rapi, false, true);
 			}
 			else if (visualType == VISUAL_LENS)
 			{
