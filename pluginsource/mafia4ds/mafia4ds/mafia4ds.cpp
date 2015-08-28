@@ -2,7 +2,7 @@
 #include "mafia4ds.h"
 
 extern void Model_ReadMaterials(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi, CArrayList<noesisTex_t *> &texList, CArrayList<noesisMaterial_t *> &matList);
-extern void Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *rapi, bool singleMesh = false, bool morph = false);
+extern objectData_s* Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *rapi, bool singleMesh = false, bool morph = false);
 extern void Model_ReadMirror(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
 extern void Model_ReadSector(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
 extern void Model_ReadDummy(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi);
@@ -47,8 +47,14 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 	CArrayList<noesisMaterial_t *> matList;
 	Model_ReadMaterials(hdr.ver, bs, rapi, texList, matList);
 
+	objectData_t* object;
+
 	UINT16 numNodes;
 	bs->ReadBytes(&numNodes, 2);
+
+	//that's a really crappy way of getting bone hierarchy
+	UINT32 *boneIDs = new UINT32[numNodes];
+	memset(boneIDs, 0, numNodes*sizeof(INT32));
 
 	CArrayList<transform_t> transforms;
 
@@ -146,7 +152,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 			}
 			else if (visualType == VISUAL_SINGLEMORPH)
 			{
-				Model_ReadObject(hdr.ver, nodeName, bs, rapi, true, true);
+				object = Model_ReadObject(hdr.ver, nodeName, bs, rapi, true, true);
 			}
 			else if (visualType == VISUAL_BILLBOARD)
 			{
@@ -162,7 +168,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 			{
 				BYTE numGlows = bs->ReadByte();
 
-				for (int i = 0; i < numGlows; i++)
+				for (int j = 0; j < numGlows; j++)
 				{
 					float position = bs->ReadFloat();
 
@@ -196,7 +202,29 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 		}
 		else if (frameType == FRAME_JOINT)
 		{
-			Model_ReadJoint(hdr.ver, bs, rapi);
+			//Model_ReadJoint(hdr.ver, bs, rapi);
+
+			RichMat44 matrix;
+			if (hdr.ver == VERSION_MAFIA)
+			{
+				bs->ReadBytes(&matrix, sizeof(RichMat44));
+			}
+
+			UINT32 ID = bs->ReadInt();
+
+			boneIDs[i] = ID;
+			
+			RichMat43 boneMat = RichMat43(object->lods[0].bones[ID].mat);
+			RichMat43 boneParentMat = RichMat43(object->lods[0].bones[ID].mat);
+			object->lods[0].bones[ID].mat = (boneMat).m;
+			object->lods[0].bones[ID].eData.parent = (parentID > 1) ? &object->lods[0].bones[boneIDs[parentID-1]] : NULL;
+			HWND wnd = g_nfn->NPAPI_GetMainWnd();
+
+			modelBone_t *parent = object->lods[0].bones[ID].eData.parent;
+
+			wchar_t *buf = new wchar_t[10];
+			swprintf(buf, L"%S %S", ((parent != NULL) ? parent->name : "null"), object->lods[0].bones[ID].name);
+			//MessageBox(wnd, buf, L"MD2 Exporter", MB_YESNO);
 		}
 		else if (frameType == FRAME_OCCLUDER)
 		{
@@ -210,6 +238,12 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 	{
 		noesisMatData_t *md = rapi->Noesis_GetMatDataFromLists(matList, texList);
 		rapi->rpgSetExData_Materials(md);
+	}
+
+	if (object)
+	{
+		//rapi->rpgMultiplyBones(object->lods[0].bones, object->lods[0].numBones);
+		rapi->rpgSetExData_Bones(object->lods[0].bones, object->lods[0].numBones);
 	}
 
 	//rapi->rpgOptimize();
