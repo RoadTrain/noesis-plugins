@@ -165,6 +165,22 @@ typedef struct morphChannel_s
     }
 } morphChannel_t;
 
+typedef struct boneData_s
+{
+	UINT32 numOneWeightedVerts;
+	UINT32 numWeightedVerts;
+	UINT16 *vertIndices1;
+	UINT16 *vertIndices2;
+	float  *vertWeights2;
+
+	~boneData_s()
+    {
+		if (vertIndices1) delete[] vertIndices1;
+		if (vertIndices2) delete[] vertIndices2;
+		if (vertWeights2) delete[] vertWeights2;
+    }
+} boneData_t;
+
 typedef struct lodData_s
 {
 	char *name;
@@ -177,15 +193,22 @@ typedef struct lodData_s
 
 	BYTE numBones;
 	modelBone_t *bones;
+	boneData_t *boneVerts;
+
+	UINT32 *boneIdx;
+	float *boneWeights;
 
 	BYTE numTargets;
 	BYTE numChannels;
 	morphChannel_t *channels;
 
+	lodData_s() : verts(NULL), faceGroups(NULL), bones(NULL), channels(NULL) {};
+
 	~lodData_s()
     {
 		if (verts)      delete[] verts;
 		if (faceGroups) delete[] faceGroups;
+		if (bones)      delete[] bones;
 		if (channels)   delete[] channels;
     }
 } lodData_t;
@@ -196,11 +219,35 @@ typedef struct objectData_s
 	BYTE numLODs;
 	lodData_t *lods;
 
+	objectData_s() : lods(NULL) {};
+
 	~objectData_s()
     {
 		if (lods)  delete[] lods;
     }
 } objectData_t;
+
+union Float_t
+{
+    Float_t(float num = 0.0f) : f(num) {}
+    // Portable extraction of components.
+    bool Negative() const { return (i >> 31) != 0; }
+    INT32 RawMantissa() const { return i & ((1 << 23) - 1); }
+    INT32 RawExponent() const { return (i >> 23) & 0xFF; }
+ 
+    INT32 i;
+    float f;
+#ifdef _DEBUG
+    struct
+    {   // Bitfields for exploration. Do not use in production code.
+        UINT32 mantissa : 23;
+        UINT32 exponent : 8;
+        UINT32 sign : 1;
+    } parts;
+#endif
+};
+ 
+extern bool AlmostEqualUlps(float A, float B, int maxUlpsDiff);
 
 extern mathImpFn_t *g_mfn;
 extern noePluginFn_t *g_nfn;

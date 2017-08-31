@@ -1,5 +1,6 @@
 #include "stdafx.h"
-#include "mafia4ds.h"
+//#include "mafia4ds.h"
+#include "LS3D\Model.h"
 
 extern void Model_ReadMaterials(UINT16 ver, RichBitStream *bs, noeRAPI_t *rapi, CArrayList<noesisTex_t *> &texList, CArrayList<noesisMaterial_t *> &matList);
 extern objectData_s* Model_ReadObject(UINT16 ver, char *nodeName, RichBitStream *bs, noeRAPI_t *rapi, bool singleMesh = false, bool morph = false);
@@ -47,7 +48,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 	CArrayList<noesisMaterial_t *> matList;
 	Model_ReadMaterials(hdr.ver, bs, rapi, texList, matList);
 
-	objectData_t* object;
+	objectData_t* object = NULL;
 
 	UINT16 numNodes;
 	bs->ReadBytes(&numNodes, 2);
@@ -57,6 +58,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 	memset(boneIDs, 0, numNodes*sizeof(INT32));
 
 	CArrayList<transform_t> transforms;
+	CArrayList<RichMat43> ts;
 
 	for (int i = 0; i < numNodes; i++)
 	{
@@ -96,7 +98,7 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 			}
 		}
 
-		if (parentID != 0)
+		/*if (parentID != 0)
 		{
 			transform_t transform = transforms[parentID-1];			
 			position = position + transform.position;
@@ -108,20 +110,29 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 		transform.position = position;
 		transform.scale = scale;
 		transform.rotation = rotation;
-		transforms.Append(transform);
+		transforms.Append(transform);*/
 
 		RichMat43 pos = RichMat43(RichVec3(1,0,0), RichVec3(0,1,0), RichVec3(0,0,1), position);
 		RichMat43 scal = RichMat43(RichVec3(scale.v[0],0,0), RichVec3(0,scale.v[1],0), RichVec3(0,0,scale.v[2]), RichVec3(0,0,0));
 		RichMat43 rot = rotation.ToMat43(); 
 
 		RichMat43 trans = scal*rot*pos;
+
+		if (parentID != 0)
+		{
+			RichMat43 parentTrans = ts[parentID-1];
+			trans = trans * parentTrans;
+		}
+
 		rapi->rpgSetTransform(&trans.m);
+
+		ts.Append(trans);
 
 		//rapi->rpgSetTransform(&scal.m);
 		//rapi->rpgSetTransform(&rot.m);
 		//rapi->rpgSetTransform(&pos.m);
 
-		BYTE cullingFlags = bs->ReadByte(); 
+		BYTE cullingFlags = bs->ReadByte();
 
 		BYTE nameLength = bs->ReadByte();
 		
@@ -148,11 +159,33 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 			}
 			else if (visualType == VISUAL_SINGLEMESH)
 			{
-				Model_ReadObject(hdr.ver, nodeName, bs, rapi, true);
+				object = Model_ReadObject(hdr.ver, nodeName, bs, rapi, true);
+
+				//here we have to apply our mesh transform to every bone
+				if (object->lods[0].bones) 
+				{
+					for (int j = 0; j < object->lods[0].numBones; j++)
+					{
+						RichMat43 boneMat = RichMat43(object->lods[0].bones[j].mat);
+						boneMat = boneMat * trans;
+						object->lods[0].bones[j].mat = boneMat.m;
+					}
+				}
 			}
 			else if (visualType == VISUAL_SINGLEMORPH)
 			{
 				object = Model_ReadObject(hdr.ver, nodeName, bs, rapi, true, true);
+
+				//here we have to apply our mesh transform to every bone
+				if (object->lods[0].bones) 
+				{
+					for (int j = 0; j < object->lods[0].numBones; j++)
+					{
+						RichMat43 boneMat = RichMat43(object->lods[0].bones[j].mat);
+						boneMat = boneMat * trans;
+						object->lods[0].bones[j].mat = boneMat.m;
+					}
+				}
 			}
 			else if (visualType == VISUAL_BILLBOARD)
 			{
@@ -212,19 +245,13 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 
 			UINT32 ID = bs->ReadInt();
 
-			boneIDs[i] = ID;
-			
-			RichMat43 boneMat = RichMat43(object->lods[0].bones[ID].mat);
-			RichMat43 boneParentMat = RichMat43(object->lods[0].bones[ID].mat);
-			object->lods[0].bones[ID].mat = (boneMat).m;
-			object->lods[0].bones[ID].eData.parent = (parentID > 1) ? &object->lods[0].bones[boneIDs[parentID-1]] : NULL;
-			HWND wnd = g_nfn->NPAPI_GetMainWnd();
+			//boneIDs[i] = ID;
 
-			modelBone_t *parent = object->lods[0].bones[ID].eData.parent;
+			//RichMat43 boneMat = RichMat43(object->lods[0].bones[ID].mat);
+			//RichMat43 linkMat = matrix.ToMat43().GetInverse();
+			//object->lods[0].bones[ID].mat = (boneMat*linkMat).m;
 
-			wchar_t *buf = new wchar_t[10];
-			swprintf(buf, L"%S %S", ((parent != NULL) ? parent->name : "null"), object->lods[0].bones[ID].name);
-			//MessageBox(wnd, buf, L"MD2 Exporter", MB_YESNO);
+			//object->lods[0].bones[ID].eData.parent = (parentID > 1) ? &object->lods[0].bones[boneIDs[parentID-1]] : NULL;
 		}
 		else if (frameType == FRAME_OCCLUDER)
 		{
@@ -242,11 +269,25 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 
 	if (object)
 	{
-		//rapi->rpgMultiplyBones(object->lods[0].bones, object->lods[0].numBones);
 		rapi->rpgSetExData_Bones(object->lods[0].bones, object->lods[0].numBones);
+
+		sharedPAnimParm_t aparms[2];
+		memset(aparms, 0, sizeof(aparms)); //it's a good idea to do this, in case future noesis versions add more meaningful fields.
+		aparms[0].angAmt = 0.0f;
+		aparms[0].axis = 2; //rotate left and right
+		aparms[0].boneIdx = 4; //upper torso bone
+		aparms[0].timeScale = 0.1f; //acts as a framestep
+		aparms[1].angAmt = -25.0f;
+		aparms[1].axis = 1; //rotate back and forth
+		aparms[1].boneIdx = 8; //hips
+		aparms[1].timeScale = 0.1f; //acts as a framestep
+		noesisAnim_t *anim = rapi->rpgCreateProceduralAnim(object->lods[0].bones, object->lods[0].numBones, aparms, 2, 500);
+		if (anim)
+		{
+			rapi->rpgSetExData_AnimsNum(anim, 1);
+		}
 	}
 
-	//rapi->rpgOptimize();
 	//4DS uses a different handedness
 	rapi->rpgSetOption(RPGOPT_SWAPHANDEDNESS, true);
 	noesisModel_t *mdl = rapi->rpgConstructModel();
@@ -255,7 +296,28 @@ noesisModel_t *Model_LoadModel(BYTE *fileBuffer, int bufferLen, int &numMdl, noe
 		numMdl = 1; //it's important to set this on success! you can set it to > 1 if you have more than 1 contiguous model in memory
 		float mdlAngOfs[3] = {0.0f, 90.0f, 270.0f};
 		//rapi->SetPreviewAngOfs(mdlAngOfs);
-		//rapi->SetPreviewOption("noTextureLoad", "1");
+		rapi->SetPreviewOption("setSkelToShow", "1");
+	}
+	rapi->rpgDestroyContext(pgctx);
+	return mdl;
+}
+
+noesisModel_t *Model_LoadModel1(BYTE *fileBuffer, int bufferLen, int &numMdl, noeRAPI_t *rapi)
+{
+	RichBitStream *bs = new RichBitStream(fileBuffer, bufferLen);
+
+	LS3D::Model *model = new LS3D::Model();
+	model->initFromBitStream(bs);
+
+	void *pgctx = rapi->rpgCreateContext();
+	noesisModel_t *mdl = model->constructModel(rapi);
+
+	if (mdl)
+	{
+		numMdl = 1; //it's important to set this on success! you can set it to > 1 if you have more than 1 contiguous model in memory
+		float mdlAngOfs[3] = {0.0f, 90.0f, 270.0f};
+		//rapi->SetPreviewAngOfs(mdlAngOfs);
+		rapi->SetPreviewOption("setSkelToShow", "1");
 	}
 	rapi->rpgDestroyContext(pgctx);
 	return mdl;
@@ -292,4 +354,26 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 					 )
 {
     return TRUE;
+}
+
+bool AlmostEqualUlps(float A, float B, int maxUlpsDiff)
+{
+    Float_t uA(A);
+    Float_t uB(B);
+ 
+    // Different signs means they do not match.
+    if (uA.Negative() != uB.Negative())
+    {
+        // Check for equality to make sure +0==-0
+        if (A == B)
+            return true;
+        return false;
+    }
+ 
+    // Find the difference in ULPs.
+    int ulpsDiff = abs(uA.i - uB.i);
+    if (ulpsDiff <= maxUlpsDiff)
+        return true;
+ 
+    return false;
 }

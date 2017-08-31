@@ -15,6 +15,12 @@
     <Filter Include="Файлы исходного кода\shared">
       <UniqueIdentifier>{7bce340f-28f3-48a7-9f3d-a88f5ad9e175}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Заголовочные файлы\LS3D">
+      <UniqueIdentifier>{c19614cc-9ec7-43bb-b85e-ed97be321c03}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Файлы исходного кода\LS3D">
+      <UniqueIdentifier>{626e298d-cea5-49ad-be1b-e981afd3e1d7}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="mafia4ds.h">
@@ -29,6 +35,42 @@
     <ClInclude Include="stdafx.h">
       <Filter>Заголовочные файлы</Filter>
     </ClInclude>
+    <ClInclude Include="LS3D\Model.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
+    <ClInclude Include="LS3D\VisualObject.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
+    <ClInclude Include="LS3D\VisualLens.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
+    <ClInclude Include="LS3D\VisualMirror.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
+    <ClInclude Include="LS3D\FrameSector.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
+    <ClInclude Include="LS3D\FrameDummy.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
+    <ClInclude Include="LS3D\FrameTarget.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
+    <ClInclude Include="LS3D\FrameJoint.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
+    <ClInclude Include="LS3D\FrameOccluder.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
+    <ClInclude Include="LS3D\VisualSinglemesh.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
+    <ClInclude Include="LS3D\LOD.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
+    <ClInclude Include="LS3D\Base.h">
+      <Filter>Заголовочные файлы\LS3D</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\noesisplugin.cpp">
@@ -42,6 +84,9 @@
     </ClCompile>
     <ClCompile Include="mafia4ds_import.cpp">
       <Filter>Файлы исходного кода</Filter>
+    </ClCompile>
+    <ClCompile Include="LS3D\Model.cpp">
+      <Filter>Файлы исходного кода\LS3D</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

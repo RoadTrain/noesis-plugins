@@ -39,10 +39,15 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <IncludePath>$(IncludePath)</IncludePath>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
+      <FloatingPointModel>Strict</FloatingPointModel>
+      <AdditionalIncludeDirectories>D:\Eigen;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -77,12 +82,25 @@
   <ItemGroup>
     <ClInclude Include="..\..\pluginclasses.h" />
     <ClInclude Include="..\..\pluginshare.h" />
+    <ClInclude Include="LS3D\Base.h" />
+    <ClInclude Include="LS3D\FrameDummy.h" />
+    <ClInclude Include="LS3D\FrameJoint.h" />
+    <ClInclude Include="LS3D\FrameOccluder.h" />
+    <ClInclude Include="LS3D\FrameTarget.h" />
+    <ClInclude Include="LS3D\LOD.h" />
+    <ClInclude Include="LS3D\Model.h" />
+    <ClInclude Include="LS3D\FrameSector.h" />
+    <ClInclude Include="LS3D\VisualLens.h" />
+    <ClInclude Include="LS3D\VisualMirror.h" />
+    <ClInclude Include="LS3D\VisualObject.h" />
+    <ClInclude Include="LS3D\VisualSinglemesh.h" />
     <ClInclude Include="mafia4ds.h" />
     <ClInclude Include="stdafx.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\noesisplugin.cpp" />
     <ClCompile Include="..\..\pluginsupport.cpp" />
+    <ClCompile Include="LS3D\Model.cpp" />
     <ClCompile Include="mafia4ds.cpp" />
     <ClCompile Include="mafia4ds_import.cpp" />
   </ItemGroup>
