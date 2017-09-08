@@ -1,5 +1,6 @@
 #include "pluginshare.h"
 #include <math.h>
+#include <algorithm>
 
 #ifdef _NOESIS_INTERNAL
 	#include "../maintypes.h"
@@ -461,6 +462,13 @@ void RichMat43::SLerp(const RichMat43 &preMat, const RichMat43 &postMat, float l
 {
 	MATH_PREFIX Math_LerpMatricesQ((modelMatrix_t &)preMat.m, (modelMatrix_t &)postMat.m, 1.0f-lerpFrac, m, nonUniform);
 }
+void RichMat43::TransformQST(const RichVec3 *pScalingCenter, const RichQuat *pScalingRotation,
+								const RichVec3 *pScaling, const RichVec3 *pRotationCenter, const RichQuat *pRotation,
+								const RichVec3 *pTranslation)
+{
+	MATH_PREFIX Math_TransformQST(&m, (const float *)pScalingCenter, (const float *)pScalingRotation, (const float *)pScaling,
+									(const float *)pRotationCenter, (const float *)pRotation, (const float *)pTranslation);
+}
 
 RichQuat RichMat43::ToQuat(void) const
 {
@@ -628,6 +636,16 @@ RichVec4 RichMat44::TransformVec4(const RichVec4 &vec) const
 	out[2] = matrix[2]*in[0] + matrix[4+2]*in[1] + matrix[8+2]*in[2] + matrix[12+2]*in[3];
 	out[3] = matrix[3]*in[0] + matrix[4+3]*in[1] + matrix[8+3]*in[2] + matrix[12+3]*in[3];
 	return RichVec4(out);
+}
+RichVec3 RichMat44::TransformNormal(const RichVec3 &vec) const
+{
+	float out[3];
+	const float *matrix = (float *)&m;
+	const float *in = vec.v;
+	out[0] = matrix[0]*in[0] + matrix[4+0]*in[1] + matrix[8+0]*in[2];
+	out[1] = matrix[1]*in[0] + matrix[4+1]*in[1] + matrix[8+1]*in[2];
+	out[2] = matrix[2]*in[0] + matrix[4+2]*in[1] + matrix[8+2]*in[2];
+	return RichVec3(out);
 }
 RichMat44 RichMat44::GetTranspose(void) const
 {
@@ -1090,13 +1108,14 @@ void RichVec3::BarycentricCoordinates(const RichVec3 &v0, const RichVec3 &v1, co
 	}
 	else
 	{
+		const float invArea = 1.0f / area;
 		RichVec3 area0, area1, area2;
 		area0.Cross(p1, p2);
 		area1.Cross(p2, p0);
 		area2.Cross(p0, p1);
-		v[0] = area0.Length()/area * ( (triArea.Dot(area0) > 0.0) ? 1.0f : -1.0f );
-		v[1] = area1.Length()/area * ( (triArea.Dot(area1) > 0.0) ? 1.0f : -1.0f );
-		v[2] = area2.Length()/area * ( (triArea.Dot(area2) > 0.0) ? 1.0f : -1.0f );
+		v[0] = area0.Length() * invArea * ( (triArea.Dot(area0) > 0.0) ? 1.0f : -1.0f );
+		v[1] = area1.Length() * invArea * ( (triArea.Dot(area1) > 0.0) ? 1.0f : -1.0f );
+		v[2] = area2.Length() * invArea * ( (triArea.Dot(area2) > 0.0) ? 1.0f : -1.0f );
 	}
 }
 
@@ -1562,6 +1581,10 @@ RichVec2 RichVec2::Normalized(void) const
 	}
 	return *this;
 }
+RichVec2 RichVec2::InverseOrZero() const
+{
+	return RichVec2((v[0] != 0.0f) ? 1.0f / v[0] : 0.0f, (v[1] != 0.0f) ? 1.0f / v[1] : 0.0f);
+}
 void RichVec2::Lerp(const RichVec2 &vec, const float frac)
 {
 	v[0] = MATH_PREFIX Math_LinearLerp(v[0], vec.v[0], frac);
@@ -1573,6 +1596,171 @@ void RichVec2::Lerp(const RichVec2 &vecA, const RichVec2 &vecB, const float frac
 	v[1] = MATH_PREFIX Math_LinearLerp(vecA.v[1], vecB.v[1], frac);
 }
 
+
+//===========================================
+//RichVecH2 implementation
+//===========================================
+RichVecH2::RichVecH2(void)
+{
+	v[0] = 0.0;
+	v[1] = 0.0;
+}
+RichVecH2::RichVecH2(const double x, const double y)
+{
+	v[0] = x;
+	v[1] = y;
+}
+RichVecH2::RichVecH2(const double *xy)
+{
+	v[0] = xy[0];
+	v[1] = xy[1];
+}
+
+double &RichVecH2::operator[](int idx)
+{
+	assert(idx >= 0 && idx < 2);
+	return v[idx];
+}
+double RichVecH2::operator[](int idx) const
+{
+	assert(idx >= 0 && idx < 2);
+	return v[idx];
+}
+RichVecH2 &RichVecH2::operator=(const RichVecH2 &vec)
+{
+	v[0] = vec.v[0];
+	v[1] = vec.v[1];
+	return *this;
+}
+bool RichVecH2::operator==(const RichVecH2 &vec) const
+{
+	return (v[0] == vec.v[0] && v[1] == vec.v[1]);
+}
+bool RichVecH2::operator!=(const RichVecH2 &vec) const
+{
+	return (v[0] != vec.v[0] || v[1] != vec.v[1]);
+}
+RichVecH2 RichVecH2::operator+(const RichVecH2 &vec) const
+{
+	return RichVecH2(v[0]+vec.v[0], v[1]+vec.v[1]);
+}
+RichVecH2 &RichVecH2::operator+=(const RichVecH2 &vec)
+{
+	v[0] += vec.v[0];
+	v[1] += vec.v[1];
+	return *this;
+}
+RichVecH2 RichVecH2::operator-(void) const
+{
+	return RichVecH2(-v[0], -v[1]);
+}
+RichVecH2 RichVecH2::operator-(const RichVecH2 &vec) const
+{
+	return RichVecH2(v[0]-vec.v[0], v[1]-vec.v[1]);
+}
+RichVecH2 &RichVecH2::operator-=(const RichVecH2 &vec)
+{
+	v[0] -= vec.v[0];
+	v[1] -= vec.v[1];
+	return *this;
+}
+RichVecH2 RichVecH2::operator*(const RichVecH2 &vec) const
+{
+	return RichVecH2(v[0]*vec.v[0], v[1]*vec.v[1]);
+}
+RichVecH2 &RichVecH2::operator*=(const RichVecH2 &vec)
+{
+	v[0] *= vec.v[0];
+	v[1] *= vec.v[1];
+	return *this;
+}
+RichVecH2 RichVecH2::operator*(const double &f) const
+{
+	return RichVecH2(v[0]*f, v[1]*f);
+}
+RichVecH2 &RichVecH2::operator*=(const double &f)
+{
+	v[0] *= f;
+	v[1] *= f;
+	return *this;
+}
+RichVecH2 RichVecH2::operator/(const RichVecH2 &vec) const
+{
+	return RichVecH2(v[0]/vec.v[0], v[1]/vec.v[1]);
+}
+RichVecH2 &RichVecH2::operator/=(const RichVecH2 &vec)
+{
+	v[0] /= vec.v[0];
+	v[1] /= vec.v[1];
+	return *this;
+}
+
+void RichVecH2::ChangeEndian(void)
+{
+	LITTLE_BIG_SWAP(v[0]);
+	LITTLE_BIG_SWAP(v[1]);
+}
+
+double RichVecH2::Dot(const RichVecH2 &vec) const
+{
+	const double *v1 = v;
+	const double *v2 = vec.v;
+	return v1[0]*v2[0] + v1[1]*v2[1];
+}
+//returns a positive value if OAB makes a counter-clockwise turn, negative for clockwise turn,
+//and zero if the points are collinear.
+double RichVecH2::Cross(const RichVecH2 &vec, const RichVecH2 &point) const
+{
+	return (vec[0] - v[0]) * (point[1] - v[1]) - (vec[1] - v[1]) * (point[0] - v[0]);
+}
+double RichVecH2::Cross(const RichVecH2 &vec) const
+{
+	return v[0]*vec[1] - v[1]*vec[0];
+}
+double RichVecH2::Length(void) const
+{
+	return sqrt(LengthSq());
+}
+double RichVecH2::LengthSq(void) const
+{
+	return (v[0]*v[0] + v[1]*v[1]);
+}
+double RichVecH2::Normalize(void)
+{
+	double l = Length();
+	if (l != 0.0)
+	{
+		double lm = 1.0/l;
+		*this *= lm;
+	}
+	return l;
+}
+RichVecH2 RichVecH2::Normalized(void) const
+{
+	double l = Length();
+	if (l != 0.0)
+	{
+		double lm = 1.0/l;
+		return RichVecH2(v[0]*lm, v[1]*lm);
+	}
+	return *this;
+}
+RichVecH2 RichVecH2::InverseOrZero() const
+{
+	return RichVecH2((v[0] != 0.0) ? 1.0 / v[0] : 0.0, (v[1] != 0.0) ? 1.0 / v[1] : 0.0);
+}
+RichVecH2 RichVecH2::PointOnSegment(const RichVecH2 &v0, const RichVecH2 &v1) const
+{
+	const RichVecH2 lineVec = v1 - v0;
+	const double lineLenSq = lineVec.LengthSq();
+	if (lineLenSq != 0.0)
+	{
+		const RichVecH2 pointVec = *this - v0;
+		return v0 + lineVec * std::min<double>(std::max<double>((pointVec.Dot(lineVec) / lineLenSq), 0.0), 1.0);
+	}
+
+	return v0;
+}
 
 //=========================================
 //Misc utility classes

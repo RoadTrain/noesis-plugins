@@ -116,6 +116,9 @@ public:
 	void					Lerp(const RichMat43 &preMat, const RichMat43 &postMat, float lerpFrac, bool nonUniform = true, bool orthogonalize = false);
 	void					SLerp(const RichMat43 &postMat, float lerpFrac, bool nonUniform = true);
 	void					SLerp(const RichMat43 &preMat, const RichMat43 &postMat, float lerpFrac, bool nonUniform = true);
+	void					TransformQST(const RichVec3 *pScalingCenter, const RichQuat *pScalingRotation,
+											const RichVec3 *pScaling, const RichVec3 *pRotationCenter, const RichQuat *pRotation,
+											const RichVec3 *pTranslation);
 
 	//conversion
 	RichQuat				ToQuat(void) const;
@@ -159,6 +162,7 @@ public:
 
 	//general operations
 	RichVec4				TransformVec4(const RichVec4 &vec) const;
+	RichVec3				TransformNormal(const RichVec3 &vec) const;
 	RichMat44				GetTranspose(void) const;
 	void					Transpose(void);
 	RichMat44				GetInverse(void) const;
@@ -375,10 +379,56 @@ public:
 	RichVec2				Normalized(void) const;
 	void					Lerp(const RichVec2 &vec, const float frac);
 	void					Lerp(const RichVec2 &vecA, const RichVec2 &vecB, const float frac);
+	RichVec2				InverseOrZero() const;
 
 	float					v[2];
 };
 
+class RichVecH2
+{
+public:
+	RichVecH2(void);
+	RichVecH2(const double x, const double y);
+	RichVecH2(const double *xy);
+
+	//access
+	double					&operator[](int idx);
+	double					operator[](int idx) const;
+	//set/compare
+	RichVecH2				&operator=(const RichVecH2 &vec);
+	bool					operator==(const RichVecH2 &vec) const;
+	bool					operator!=(const RichVecH2 &vec) const;
+	//add
+	RichVecH2				operator+(const RichVecH2 &vec) const;
+	RichVecH2				&operator+=(const RichVecH2 &vec);
+	//subtract
+	RichVecH2				operator-(void) const;
+	RichVecH2				operator-(const RichVecH2 &vec) const;
+	RichVecH2				&operator-=(const RichVecH2 &vec);
+	//multiply
+	RichVecH2				operator*(const RichVecH2 &vec) const;
+	RichVecH2				&operator*=(const RichVecH2 &vec);
+	RichVecH2				operator*(const double &f) const;
+	RichVecH2				&operator*=(const double &f);
+	//divide
+	RichVecH2				operator/(const RichVecH2 &vec) const;
+	RichVecH2				&operator/=(const RichVecH2 &vec);
+
+	void					ChangeEndian(void);
+
+	//general operations
+	double					Dot(const RichVecH2 &vec) const;
+	double					Cross(const RichVecH2 &vec, const RichVecH2 &point) const;
+	double					Cross(const RichVecH2 &vec) const;
+	double					Length(void) const;
+	double					LengthSq(void) const;
+	double					Normalize(void);
+	RichVecH2				Normalized(void) const;
+	RichVecH2				InverseOrZero() const;
+	RichVecH2				PointOnSegment(const RichVecH2 &v0, const RichVecH2 &v1) const;
+
+	double					v[2];
+};
 
 
 

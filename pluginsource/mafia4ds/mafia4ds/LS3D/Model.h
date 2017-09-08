@@ -1,6 +1,7 @@
 #include "../../../pluginshare.h"
 #include "../mafia4ds.h"
 #include <vector>
+#include <memory>
 
 #include "Base.h"
 

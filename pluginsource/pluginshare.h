@@ -32,15 +32,29 @@
 #include <stdio.h>
 #include <malloc.h>
 #include <assert.h>
+#include <new>
 
 //styles/conventions in this API are based on the shitty roots of this codebase from ~15 years ago.
 //i hate them all now, and sometimes you'll notice I decide to just say fuck it and not adhere
 //to convention. this has led to a horrible c/c++ style hybrid.
 #include "pluginbasetypes.h"
 
+#ifndef NoeCtAssert
+	#define NoeCtAssert(ctExpression) typedef int compileTimeAssert[(ctExpression) ? 1 : -1 ];
+#endif
+
+#ifndef NoeAssert
+	#define NoeAssert assert
+#endif
+
+#ifndef NoeInline
+	#define NoeInline inline
+#endif
+
 #define NOESIS_PLUGIN_VERSION		3
 
-#define NOESIS_PLUGINAPI_VERSION	72 //make your plugin require this version if you use new api functions.
+#define NOESIS_PLUGINAPI_VERSION	73 //make your plugin require this version if you use new api functions.
+//Noesis 4.2 - 73
 //Noesis 4.0974 - 72
 //Noesis 4.0969 - 71
 //Noesis 4.0968 - 70
@@ -328,6 +342,52 @@ typedef struct modelVMorphFr_s
 	modelVert_t			*nrm;
 } modelVMorphFr_t;
 
+#define MAX_MORPH_NAME_SIZE 256
+
+struct SMorphGroup
+{
+	SMorphGroup()
+		: mStartFrame(0)
+		, mEndFrame(0)
+		, mMeshIndex(-1)
+	{
+		mName[0] = 0;
+		mMeshName[0] = 0;
+		memset(mResv, 0, sizeof(mResv));
+	}
+
+	//name of the morph group
+	char mName[MAX_MORPH_NAME_SIZE];
+
+	//name of the mesh which this morph references
+	char mMeshName[MAX_MORPH_NAME_SIZE];
+
+	//NOTE - where morphs are considered, "frame 0" is actually the mesh base geometry.
+	//therefore, morphFrames[0]..morphFrames[numMorphFrames - 1] is represented as frame 1..numMorphFrames.
+	int mStartFrame;
+	//mEndFrame is inclusive, so if there are 86 frames (including the base geo as frame 0), mEndFrame should be no greater than 85.
+	int mEndFrame;
+
+	int mMeshIndex; //set internally, do not modify
+
+	int mResv[16];
+};
+
+struct SMorphGroupInfo
+{
+	SMorphGroupInfo()
+		: mpGroups(NULL)
+		, mGroupCount(0)
+	{
+		memset(mResv, 0, sizeof(mResv));
+	}
+
+	SMorphGroup *mpGroups;
+	int mGroupCount;
+
+	int mResv[16];
+};
+
 typedef struct modelUserStream_s
 {
 	const char					*name;
@@ -338,6 +398,10 @@ typedef struct modelUserStream_s
 
 	int							resv[8];
 } modelUserStream_t;
+
+class RichComplex;
+
+typedef struct noesisTex_s noesisTex_t;
 
 //this exposes a chunk of my horrifying standard-type math library. i don't guarantee that any of these functions work, but most of them probably do.
 typedef struct mathImpFn_s
@@ -523,6 +587,40 @@ typedef struct mathImpFn_s
 	//extracts the fraction and exponent from a 64-bit float.
 	void (*Math_ExtractFractionAndExponent64)(double *pFractionOut, double *pExponentOut, const double v);
 
+	void (*Math_TransformQST)(modelMatrix_t *pInOut, const float *pScalingCenter, const float *pScalingRotation,
+								const float *pScaling, const float *pRotationCenter, const float *pRotation, const float *pTranslation);
+
+	void (*Math_GetFirstLastBitSet64)(unsigned int *pFirstBit, unsigned int *pLastBitPlusOne, const unsigned __int64 val);
+
+	bool (*Math_SHProjectCubemap)(float *pOutR, float *pOutG, float *pOutB, const noesisTex_t *pTex, const int order);
+
+	//unless otherwise specified, inputs and outputs assume 4-channel rgba
+	bool (*Math_CreateIrradianceCubemap)(float *pOut, const int outWidth, const int outHeight, const noesisTex_t *pSrcCubeTex);
+	bool (*Math_CreateIrradianceCubemapLambert)(float *pOut, const int outWidth, const int outHeight, const noesisTex_t *pSrcCubeTex);
+	bool (*Math_PrefilterCubemapGGX)(float *pOut, const int outMipCount, const noesisTex_t *pSrcCubeTex, int sampleCount, int threadCount, int miscFlags);
+	//Math_SampleSphericalProjectionIntoHDRCubemap flags - 1: flip theta, 2: flip phi
+	bool (*Math_SampleSphericalProjectionIntoHDRCubemap)(float *pOut, const int outWidth, const int outHeight, const int flags, const noesisTex_t *pSrcSphereTex);
+
+	//calculate approximate derivative of pFn(x)
+	double (*Math_CalculateDerivative)(const double x, double (*pFn)(const double x));
+	//calculate definite integral of pFn(x) from xMin to xMax, stopping when delta is < errorTolerance
+	double (*Math_CalculateIntegral)(const double xMin, const double xMax, const double errorTolerance, double (*pFn)(const double x));
+
+	//DFT & DCT functions are not at all optimized and were done from original formulas as a reference implementation. makes it easier to see data transforms under the hood when doing things
+	//properly and not using bit twiddling/look tables/etc. if you have a serious use for these, you should probably be using something like FFTW instead.
+	//note that transformed dft input/output (RichComplex) is in the form of complex double*2 numbers. you can cast this memory as std::complex<double> to operate on it.
+	void (*Math_DiscreteFourierTransform)(RichComplex *pDftData, const double *pSampleData, const unsigned int sampleCount);
+	void (*Math_InverseDiscreteFourierTransform)(double *pSampleData, const RichComplex *pDftData, const unsigned int sampleCount);
+	void (*Math_DiscreteFourierTransform2D)(RichComplex *pDftData, const double *pSampleData, const unsigned int sampleWidth, const unsigned int sampleHeight);
+	void (*Math_InverseDiscreteFourierTransform2D)(double *pSampleData, const RichComplex *pDftData, const unsigned int sampleWidth, const unsigned int sampleHeight);
+
+	void (*Math_DiscreteCosineTransform)(double *pDctData, const double *pSampleData, const unsigned int sampleCount);
+	void (*Math_InverseDiscreteCosineTransform)(double *pSampleData, const double *pDctData, const unsigned int sampleCount);
+	void (*Math_DiscreteCosineTransform2D)(double *pDctData, const double *pSampleData, const unsigned int sampleWidth, const unsigned int sampleHeight);
+	void (*Math_InverseDiscreteCosineTransform2D)(double *pSampleData, const double *pDctData, const unsigned int sampleWidth, const unsigned int sampleHeight);
+	void (*Math_DiscreteCosineTransform3D)(double *pDctData, const double *pSampleData, const unsigned int sampleWidth, const unsigned int sampleHeight, const unsigned int sampleDepth);
+	void (*Math_InverseDiscreteCosineTransform3D)(double *pSampleData, const double *pDctData, const unsigned int sampleWidth, const unsigned int sampleHeight, const unsigned int sampleDepth);
+
 	//reserved, do not call.
 	int					(*resvA)(void);
 	int					(*resvB)(void);
@@ -582,6 +680,48 @@ typedef enum
 	NOEFSMODE_WRITEBINARY,
 	NOEFSMODE_READWRITEBINARY
 } noeFSMode_e;
+
+
+#ifndef MAKEFOURCC
+	#define MAKEFOURCC(ch0, ch1, ch2, ch3)                              \
+					((DWORD)(BYTE)(ch0) | ((DWORD)(BYTE)(ch1) << 8) |   \
+					((DWORD)(BYTE)(ch2) << 16) | ((DWORD)(BYTE)(ch3) << 24 ))
+#endif
+#ifndef FOURCC_DXT1
+	#define FOURCC_DXT1  (MAKEFOURCC('D','X','T','1'))
+#endif
+#ifndef FOURCC_DXT3
+	#define FOURCC_DXT3  (MAKEFOURCC('D','X','T','3'))
+#endif
+#ifndef FOURCC_DXT5
+	#define FOURCC_DXT5  (MAKEFOURCC('D','X','T','5'))
+#endif
+#ifndef FOURCC_ATI1
+	#define FOURCC_ATI1  (MAKEFOURCC('A','T','I','1'))
+#endif
+#ifndef FOURCC_ATI2
+	#define FOURCC_ATI2  (MAKEFOURCC('A','T','I','2'))
+#endif
+#ifndef FOURCC_DXT1NORMAL
+	#define FOURCC_DXT1NORMAL  (MAKEFOURCC('D','T','1','N'))
+#endif
+#ifndef FOURCC_DX10
+	#define FOURCC_DX10  (MAKEFOURCC('D','X','1','0'))
+#endif
+#ifndef FOURCC_BC1
+	#define FOURCC_BC1		FOURCC_DXT1
+	#define FOURCC_BC2		FOURCC_DXT3
+	#define FOURCC_BC3		FOURCC_DXT5
+	#define FOURCC_BC4		FOURCC_ATI1
+	#define FOURCC_BC5		FOURCC_ATI2
+	#define FOURCC_BC6H		(MAKEFOURCC('B','C','6','H'))
+	#define FOURCC_BC6S		(MAKEFOURCC('B','C','6','S'))
+	#define FOURCC_BC7		(MAKEFOURCC('B','C','7','X'))
+#endif
+
+#define NOE_ENCODEDXT_BC1 0
+#define NOE_ENCODEDXT_BC3 1
+#define NOE_ENCODEDXT_BC4 2
 
 typedef struct cntArray_s cntArray_t;
 typedef struct cntStream_s cntStream_t;
@@ -821,6 +961,7 @@ typedef struct noesisSplineSet_s
 	int					resv[8];
 } noesisSplineSet_t;
 
+#define NTEXFLAG_WRAP_REPEAT			0 //this is the default, in absence of other wrap flags
 #define NTEXFLAG_ISNORMALMAP			(1<<0)
 #define NTEXFLAG_SEGMENTED				(1<<1)
 #define NTEXFLAG_STEREO					(1<<2) //indicates this is a stereo (side by side) image
@@ -831,6 +972,12 @@ typedef struct noesisSplineSet_s
 #define NTEXFLAG_PREVIEWLOAD			(1<<7) //loaded for preview, not by the loader module
 #define NTEXFLAG_CUBEMAP				(1<<8) //cubemap (6 2d textures)
 #define NTEXFLAG_PERSISTENT				(1<<9) //not cleaned up with texture pool, user is responsible for freeing
+#define NTEXFLAG_ISLINEAR				(1<<10) //is in linear space
+#define NTEXFLAG_HDRISLINEAR			(1<<11) //hdr data is in linear space
+#define NTEXFLAG_WANTSEAMLESS			(1<<12) //prefer seamless cubemap filtering, if available
+#define NTEXFLAG_ISLINEAR_ANY			(NTEXFLAG_ISLINEAR | NTEXFLAG_HDRISLINEAR)
+#define NTEXFLAG_WRAP_MIRROR_REPEAT		(1<<13) //mirrored repeat wrap mode, if available
+#define NTEXFLAG_WRAP_MIRROR_CLAMP		(1<<14) //mirror clamp to edge wrap mode, if available
 
 #define NMATFLAG_NMAPSWAPRA				(1<<0) //swap red and alpha channels when displaying normal map
 #define NMATFLAG_TWOSIDED				(1<<1) //no face culling
@@ -847,9 +994,108 @@ typedef struct noesisSplineSet_s
 #define NMATFLAG_RESERVE06				(1<<12)
 #define NMATFLAG_GAMMACORRECT			(1<<13) //gamma-correct lighting
 #define NMATFLAG_VCOLORSUBTRACT			(1<<14) //subtract vertex colors
+#define NMATFLAG_PBR_SPEC				(1<<15) //PBR specular lighting model, spec tex with roughness in alpha and spec color in rgb
+#define NMATFLAG_PBR_METAL				(1<<16) //PBR metallic lighting model, spec tex with roughness in alpha and metalness in green
+#define NMATFLAG_NORMALMAP_FLIPY		(1<<17) //flip y of normal map when rendering, does not affect texture data
+#define NMATFLAG_NORMALMAP_NODERZ		(1<<18) //don't derive z when sampling normal map
+#define NMATFLAG_PBR_SPEC_IR_RG			(1<<19) //PBR specular lighting model, spec tex with roughness in green, spec intensity (or metalness when combined with metal flag) in red
+#define NMATFLAG_ENV_FLIP				(1<<20) //flip environment map
+#define NMATFLAG_WANTCLAMP				(1<<21) //prefer clamped texture addressing mode
+#define NMATFLAG_PBR_ALBEDOENERGYCON	(1<<22) //albedo energy conservation
+#define NMATFLAG_PBR_COMPENERGYCON		(1<<23) //compensate for energy conservation
+#define NMATFLAG_PBR_ANY				(NMATFLAG_PBR_SPEC | NMATFLAG_PBR_METAL | NMATFLAG_PBR_SPEC_IR_RG)
+#define NMATFLAG_SPRITE_FACINGXY		(1<<24) //a hint (not necessarily obeyed by renderer) which specifies this material applies to a sprite which always faces the camera rotating about z
+#define NMATFLAG_NORMAL_UV1				(1<<25) //sample normal map from uv1 instead of uv0
+#define NMATFLAG_SPEC_UV1				(1<<26) //sample spec map from uv1 instead of uv0
+#define NMATFLAG_BASICBLEND				(1<<27) //hint to use basic blend shader
+#define NMATFLAG_FORCESELFSORT			(1<<28) //force cpu sorting of triangles
 
 typedef struct noesisModel_s noesisModel_t;
 typedef struct mdlMemLocal_s mdlMemLocal_t;
+
+class CNoeCustomData;
+
+class CNoeCustomDataList
+{
+public:
+	CNoeCustomDataList()
+		: mpDataHead(NULL)
+	{
+	}
+
+	CNoeCustomData *CreateCustomData(const char *pName, const char *pType, noeRAPI_t *pRapi, bool allocPooled = true);
+	void DestroyCustomData(CNoeCustomData *pData);
+	bool DestroyCustomDataByName(const char *pName);
+	CNoeCustomData *FindCustomDataByName(const char *pName) const;
+	CNoeCustomData *FindCustomDataByType(const char *pType) const;
+	void DuplicateListData(CNoeCustomDataList &otherList, noeRAPI_t *pRapi, bool allocPooled = true);
+	void AssumeOwnership(CNoeCustomDataList &otherList);
+	void DestroyList();
+
+	CNoeCustomData *GetCustomDataRoot() const { return mpDataHead; }
+
+	CNoeCustomDataList &operator=(CNoeCustomDataList &otherList);
+
+private:
+	CNoeCustomData *mpDataHead;
+};
+//this can't change, many plugin-shared structures make assumptions about the size here
+NoeCtAssert(sizeof(CNoeCustomDataList) == sizeof(void *));
+
+//will remain constant even if fbx types change
+enum ENoeFbxType
+{
+	kNoeFbxProp_Undefined = 0,
+	kNoeFbxProp_Char,
+	kNoeFbxProp_UChar,
+	kNoeFbxProp_Short,
+	kNoeFbxProp_UShort,
+	kNoeFbxProp_UInt,
+	kNoeFbxProp_LongLong,
+	kNoeFbxProp_ULongLong,
+	kNoeFbxProp_HalfFloat,
+	kNoeFbxProp_Bool,
+	kNoeFbxProp_Int,
+	kNoeFbxProp_Float,
+	kNoeFbxProp_Double,
+	kNoeFbxProp_Double2,
+	kNoeFbxProp_Double3,
+	kNoeFbxProp_Double4,
+	kNoeFbxProp_Double4x4,
+	kNoeFbxProp_Enum,
+	kNoeFbxProp_String,
+	kNoeFbxProp_Time,
+	kNoeFbxProp_Reference,
+	kNoeFbxProp_Blob,
+	kNoeFbxProp_Distance,
+	kNoeFbxProp_DateTime,
+
+	kNoeFbxProp_Reserved
+};
+
+static const int skSharedFbxPropVersion = 1;
+//followed by SSharedFbxPropEntry * mPropCount, then followed by data. string/data offsets for each entry are based from mDataOffset.
+struct SSharedFbxPropHeader
+{
+	int mVersion; //skSharedFbxPropVersion
+	int mPropCount;
+	int mDataOffset;
+};
+struct SSharedFbxPropEntry
+{
+	int mNameOffset;
+	int mHierarchicalNameOffset;
+	int mPropType; //ENoeFbxType
+	int mOptionalDataOffset; //-1 if none
+	
+	int mDataOffset; //-1 if none
+	int mDataSize;
+
+	int mResv[16]; //must be 0
+};
+
+#define NSEQFLAG_NONLOOPING				(1<<0) //sequence is not intended to repeat
+#define NSEQFLAG_REVERSE				(1<<1) //sequence is reversed
 
 typedef struct noesisASeq_s
 {
@@ -861,7 +1107,8 @@ typedef struct noesisASeq_s
 	BYTE				userTag[8];
 	void				*userData;
 	int					userDataSize;
-	int					resv[4];
+	int					flags;
+	int					resv[3];
 } noesisASeq_t;
 
 typedef struct noesisASeqList_s
@@ -888,7 +1135,8 @@ typedef struct noesisAnim_s
 	modelBone_t			*bones;
 	int					numBones;
 	int					flags;
-	int					resv[7];
+	int					seqFlags;
+	int					resv[6];
 } noesisAnim_t;
 typedef struct noesisTexFr_s
 {
@@ -904,7 +1152,8 @@ enum ENoeHdrTexFormat
 {
 	kNHDRTF_RGB_F96 = 0,
 	kNHDRTF_RGBA_F128,
-	kNHDRTF_Lum_F32
+	kNHDRTF_Lum_F32,
+	kNHDRTF_RGBA_F64
 };
 struct SNoeHDRTexData
 {
@@ -1051,6 +1300,11 @@ typedef struct noesisMatExpr_s
 	void			*resv[16];
 } noesisMatExpr_t;
 
+#define PBR_INTERNAL_TEX_COUNT		8
+#define PBR_INTERNAL_IRRADIANCE		0
+#define PBR_INTERNAL_PREFILTERED	1
+#define PBR_INTERNAL_INTEGRATIONMAP	2
+
 typedef struct noesisMatEx_s
 {
 	float			envMapColor[4]; //alpha is the fresnel term multiplier
@@ -1067,7 +1321,27 @@ typedef struct noesisMatEx_s
 	void			*userData;
 	int				userDataSize;
 
-	int				resv[43];
+	//only applicable for pbr. if you have gloss instead of roughness, use roughnessBias 1.0, roughnessScale -1.0
+	float			roughnessScale;
+	float			roughnessBias;
+	float			metalScale;
+	float			metalBias;
+
+	//started out roughness-based, became fake-ass anisotropy. could easily do roughness-x/roughness-y as presented by Disney for lights,
+	//but want it to be unified with IBL and don't want to do importance sampling at runtime.
+	float			roughnessAnisoScale;
+	float			roughnessAnisoAngle;
+
+	int				pbrGenTexIdx[PBR_INTERNAL_TEX_COUNT];
+
+	float			*pUvScaleBias; //float * 4
+	float			*pUvPlanes; //float * 16
+
+	float			fresnelScale;
+
+	float			*pSpecSwizzle; //float * 4 * 4
+
+	int				resv[25];
 } noesisMatEx_t;
 
 typedef struct noesisMaterial_s
@@ -1088,7 +1362,7 @@ typedef struct noesisMaterial_s
 	int				normalTexIdx;
 	int				specularTexIdx;
 	int				transTexIdx;
-	int				transFragProg;
+	int				obsoleteProgramIndex;
 
 	int				flags;
 
@@ -1104,7 +1378,9 @@ typedef struct noesisMaterial_s
 	//extended material structure (running out of room in this one to maintain backwards-compatibility)
 	noesisMatEx_t	*ex;
 
-	int				resv[2];
+	CNoeCustomDataList mCustomData;
+
+	int				resv[1];
 } noesisMaterial_t;
 
 typedef struct noesisMatData_s
@@ -1128,6 +1404,28 @@ typedef struct noesisTexRef_s
 	int						pageY;
 	int						origIdx;
 } noesisTexRef_t;
+
+#define NSCENELIGHTFL_ENABLED (1 << 0)
+#define NSCENELIGHTFL_DRAWREPRESENTATION (1 << 1)
+
+enum ENoeSceneLightAttenuation
+{
+	kNSLA_None = 0,
+	kNSLA_InverseSquare,
+
+	kNSLA_Count
+};
+
+struct SNoeSceneLight
+{
+	float						mPos[4];
+	float						mColor[4];
+	int							mFlags;
+	float						mRadius;
+	int							mAtten; //ENoeSceneLightAttenuation
+
+	int							mResv[16]; //must be 0
+};
 
 typedef enum
 {
@@ -1194,7 +1492,16 @@ typedef struct convertDxtExParams_s
 	//most games using this technique will simply use z=1 universally.
 	float					ati2ZScale;
 
-	int						resv[16];
+	//will not attempt to derive z and will not normalize after decoding ati2. should be used in cases
+	//where ati2 is housing something that isn't actually a normal map.
+	bool					ati2NoNormalize;
+
+	//decodes block color value as signed instead of unsigned
+	bool					decodeAsSigned;
+	bool					resvBB;
+	bool					resvBC;
+
+	int						resv[15];
 } convertDxtExParams_t;
 
 typedef struct sharedPAnimParm_s
@@ -1326,7 +1633,12 @@ typedef struct sharedModel_s
 
 	void						*internalMdl; //new in Noesis 2.2
 	mdlMemLocal_t				*memLocal; //new in Noesis 3.46 (do not touch)
-	void						*resv[14];
+
+	CNoeCustomDataList			mCustomData;
+
+	SMorphGroupInfo				*mpMorphGroupInfo;
+
+	void						*resv[12];
 } sharedModel_t;
 
 typedef struct smNrmParm_s
@@ -1335,6 +1647,7 @@ typedef struct smNrmParm_s
 	int							resv[8];
 } smNrmParm_t; //introduced in noesis 3.871
 #define SMNRMPARM_FLAT			(1<<0)
+#define SMNRMPARM_PLANESPACEUVS	(1<<1)
 
 typedef enum
 {
@@ -1353,6 +1666,8 @@ typedef enum
 {
 	NOEKF_SCALE_SCALAR_1 = 0,
 	NOEKF_SCALE_SINGLE,
+	NOEKF_SCALE_VECTOR_3,
+	NOEKF_SCALE_TRANSPOSED_VECTOR_3,
 	NUM_NOEKF_SCALE_TYPES
 } noeKeyFrameScale_e;
 
@@ -1478,6 +1793,11 @@ int fseekreadint(__int64 ofs, FILE *file, bool bigEnd = false);
 short freadshort(FILE *file, bool bigEnd = false);
 short fseekreadshort(__int64 ofs, FILE *file, bool bigEnd = false);
 
+#define PVRTC_DECODE_PVRTC2						(1 << 0)
+#define PVRTC_DECODE_LINEARORDER				(1 << 1)
+#define PVRTC_DECODE_BICUBIC					(1 << 2)
+#define PVRTC_DECODE_PVRTC2_ROTATE_BLOCK_PAL	(1 << 3)
+#define PVRTC_DECODE_PVRTC2_NO_OR_WITH_0_ALPHA	(1 << 4)
 
 typedef enum
 {
@@ -1492,6 +1812,7 @@ typedef enum
 	NGL_PRIM_TRIANGLES,
 	NGL_PRIM_LINES,
 	NGL_PRIM_POINTS,
+	NGL_PRIM_POLYGONS,
 	NUM_NGL_PRIMS
 } nglPrimTypes;
 typedef struct nglDrawElemParams_s
@@ -2377,6 +2698,45 @@ typedef struct noeRAPI_s
 	//lzo 1y with buffer overrun checks
 	int					(*Decomp_LZOSafe_1y)(BYTE *srcBuf, BYTE *dstBuf, DWORD srcSize, DWORD dstSize);
 
+	BYTE				*(*Image_DecodePVRTCEx)(BYTE *dataPtr, int sz, int srcW, int srcH, int bitsPP, int decodeFlags);
+
+	bool				(*Noesis_FillOutPCMWaveHeader)(void *pDst, int *pDstSize, const int dataSize, const int bitRate, const int sampleRate, const int channelCount);
+
+	int					(*Decomp_LZ4)(BYTE *srcBuf, BYTE *dstBuf, DWORD srcSize, DWORD dstSize);
+
+	void				(*Image_InterpolatedSampleEx)(BYTE *img, int w, int h, float fracX, float fracY, float *dst, int flags);
+
+	BYTE				*(*Image_CreateDDSFromDXTDataEx)(BYTE *data, int dataSize, int w, int h, int numMips, int dxtFmt, int cubeFlag, int otherFlags, int dxgiFmt, int *sizeOut, void *pResv);
+
+	BYTE				*(*Image_GetTexRGBAOffset)(noesisTex_t *tex, bool &shouldFree, int offset);
+	float				*(*Image_GetTexRGBAFloatOffset)(noesisTex_t *tex, bool &shouldFree, int offset, bool useHdr);
+
+	int					(*Image_GetMipSize)(const noesisTex_t *tex, const int mipIndex, const bool useHdr);
+
+	//checks all texture and relative paths for a given file, and returns the file contents in a buffer if found. if non-NULL is returned, free with Noesis_UnpooledFree.
+	BYTE				*(*Noesis_LoadFileOnTexturePaths)(int *pSizeOut, const char *pFilename);
+
+	void				(*Noesis_SetModelCustomData)(noesisModel_t *pMdl, CNoeCustomDataList &customDataList);
+
+	//accepts one of NOE_ENCODEDXT_* values as encodeType. dataPixelStride is the number of bytes between each pixel. pResv must be NULL. pSizeOut may be NULL if return size is not needed.
+	//the dxt buffer that's returned must be freed via Noesis_UnpooledFree. the buffer will also be padding out for dxt block alignment if the source image dimensions are not aligned to
+	//block size.
+	//for NOE_ENCODEDXT_BC4, only the first 2 (red/green) channels are used to encode the 2 "alpha" blocks.
+	BYTE				*(*Noesis_EncodeDXT)(int w, int h, const BYTE *pData, int dataPixelStride, int encodeType, int *pSizeOut, void *pResv);
+
+	//typical filtering for mip generation. assumes rgba32 src/dst. if dstW != srcW/2 || dstH != srcH/2, or either dimension is not aligned to 2, falls back to ResampleImageBilinear.
+	void				(*Noesis_ResampleImageBox)(const unsigned char *pSrc, int srcW, int srcH, unsigned char *pDst, int dstW, int dstH);
+
+	SMorphGroupInfo		*(*Noesis_GetMorphGroupInfoFromList)(const CArrayList<SMorphGroup> &morphGroups);
+	void				(*rpgSetExData_MorphGroups)(SMorphGroupInfo *pGroupInfo);
+
+	//will be ecb if pIV is NULL.
+	int					(*Decrypt_AES)(const unsigned char *pSrc, unsigned char *pDst, int size, const unsigned char *pKey, const unsigned char *pIV, int keyBits);
+	int					(*Encrypt_AES)(const unsigned char *pSrc, unsigned char *pDst, int size, const unsigned char *pKey, const unsigned char *pIV, int keyBits);
+
+	//does not require a valid rpg context (static call)
+	int					(*rpgCalculateGenus)(int vertexCount, int indexCount, const void *pIndexData, const rpgeoDataType_e indexDataType, const int triangleStride, const bool allowBoundaryEdges);
+
 	//reserved, do not call.
 	int					(*resvA)(void);
 	int					(*resvB)(void);
@@ -2649,10 +3009,10 @@ typedef struct noePluginFn_s
 	//otherwise, the value will be NULL.
 	//the callback should return 1 if the menu is visible, otherwise 0.
 	void		(*NPAPI_SetToolVisibleCallback)(int toolIdx, int (*visibleCallback)(int toolIdx, const wchar_t *focusFileName, void *resvA, void *resvB));
-	//returns some ombination of NFORMATFLAG values.
+	//returns some combination of NFORMATFLAG values.
 	//ext should be the file extension including the dot, e.g. ".png"
 	//if the extension is used by multiple format handlers, expect to get flags from all applicable formats.
-	//(numHandlers will also be set appropriately you pass a non-NULL value)
+	//(numHandlers will also be set appropriately if you pass a non-NULL value)
 	int			(*NPAPI_GetFormatExtensionFlags)(wchar_t *ext, int *numHandlers);
 	//tells noesis to open a new file in the main preview view, then delete it
 	bool		(*NPAPI_OpenAndRemoveTempFile)(wchar_t *p);
@@ -2670,6 +3030,15 @@ typedef struct noePluginFn_s
 	void		(*NPAPI_Visualizer_SetRawKeyUpHook)(int vh, bool (*rawKeyUpHook)(int vh, WPARAM wParam, LPARAM lParam));
 	void		(*NPAPI_Visualizer_SetOverrideRenders)(int vh, bool (*shouldOverrideRender)(int vh), void (*doOverrideRender)(int vh, noeSharedGL_t *ngl));
 
+	bool		(*NPAPI_FileIsLoadable)(wchar_t *pFilename);
+
+	void		(*NPAPI_DisableFormatByDescription)(char *typeDesc);
+
+	double		(*NPAPI_HighPrecisionTime)(void); //in seconds
+
+	void			(*NPAPI_AddUserExtProc)(const char *pExtName, NOEXFUNCTION pFunction);
+	NOEXFUNCTION	(*NPAPI_GetUserExtProc)(const char *pExtName);
+
 	//reserved, do not call.
 	int			(*resvA)(void);
 	int			(*resvB)(void);
@@ -2681,6 +3050,191 @@ typedef struct noePluginFn_s
 
 extern noePluginFn_t *g_nfn;
 extern mathImpFn_t *g_mfn;
+
+
+class CNoeCustomData
+{
+	friend class CNoeCustomDataList;
+	friend class CModelEditDlg;
+public:
+	void SetData(const void *pData, size_t dataSize)
+	{
+		if (mpData)
+		{
+			if (!mAllocPooled)
+			{
+				mpRapi->Noesis_UnpooledFree(mpData);
+			}
+			mpData = NULL;
+		}
+		mDataSize = 0;
+
+		if (pData)
+		{
+			mpData = (mAllocPooled) ?
+						mpRapi->Noesis_PooledAlloc(dataSize) :
+						mpRapi->Noesis_UnpooledAlloc(dataSize);
+			memcpy(mpData, pData, dataSize);
+			mDataSize = dataSize;
+		}
+	}
+
+	const char *GetName() const { return mpName; }
+	const char *GetType() const { return mpType; }
+
+	void *GetData() const { return mpData; }
+	size_t GetDataSize() const { return mDataSize; }
+
+	CNoeCustomData *GetNext() const { return mpNext; }
+	CNoeCustomData *GetPrev() const { return mpPrev; }
+
+private:
+	CNoeCustomData(const char *pName, const char *pType, noeRAPI_t *pRapi, bool allocPooled)
+		: mpPrev(NULL)
+		, mpNext(NULL)
+		, mpData(NULL)
+		, mDataSize(0)
+		, mpRapi(pRapi)
+		, mAllocPooled(allocPooled)
+	{
+		const size_t nameAllocSize = strlen(pName) + 1;
+		const size_t typeAllocSize = strlen(pType) + 1;
+		mpName = (mAllocPooled) ?
+					(char *)mpRapi->Noesis_PooledAlloc(nameAllocSize + typeAllocSize) :
+					(char *)mpRapi->Noesis_UnpooledAlloc(nameAllocSize + typeAllocSize);
+		mpType = mpName + nameAllocSize;
+		strcpy_s(mpName, nameAllocSize, pName);
+		strcpy_s(mpType, typeAllocSize, pType);
+	}
+
+	~CNoeCustomData()
+	{
+		if (!mAllocPooled)
+		{
+			mpRapi->Noesis_UnpooledFree(mpName);
+			//don't free mpType, just pointing off the end of mpName
+			if (mpData)
+			{
+				mpRapi->Noesis_UnpooledFree(mpData);
+			}
+		}
+	}
+
+	CNoeCustomData *mpPrev;
+	CNoeCustomData *mpNext;
+
+	char *mpName;
+	char *mpType;
+	void *mpData;
+	size_t mDataSize;
+
+	noeRAPI_t *mpRapi;
+	bool mAllocPooled;
+};
+
+NoeInline CNoeCustomData *CNoeCustomDataList::CreateCustomData(const char *pName, const char *pType, noeRAPI_t *pRapi, bool allocPooled)
+{
+	void *pDataMem = (allocPooled) ?
+						pRapi->Noesis_PooledAlloc(sizeof(CNoeCustomData)) :
+						pRapi->Noesis_UnpooledAlloc(sizeof(CNoeCustomData));
+	CNoeCustomData *pData = new(pDataMem) CNoeCustomData(pName, pType, pRapi, allocPooled);
+	pData->mpNext = mpDataHead;
+	if (mpDataHead)
+	{
+		NoeAssert(!mpDataHead->mpPrev);
+		mpDataHead->mpPrev = pData;
+	}
+	mpDataHead = pData;
+	return pData;
+}
+
+NoeInline void CNoeCustomDataList::DestroyCustomData(CNoeCustomData *pData)
+{
+	if (pData->mpNext)
+	{
+		pData->mpNext->mpPrev = pData->mpPrev;
+	}
+	if (pData->mpPrev)
+	{
+		pData->mpPrev->mpNext = pData->mpNext;
+	}
+	noeRAPI_t *pRapi = pData->mpRapi;
+	bool allocPooled = pData->mAllocPooled;
+	pData->~CNoeCustomData();
+	if (!allocPooled)
+	{
+		pRapi->Noesis_UnpooledFree(pData);
+	}
+}
+
+NoeInline bool CNoeCustomDataList::DestroyCustomDataByName(const char *pName)
+{
+	if (CNoeCustomData *pData = FindCustomDataByName(pName))
+	{
+		DestroyCustomData(pData);
+		return true;
+	}
+	return false;
+}
+
+NoeInline CNoeCustomData *CNoeCustomDataList::FindCustomDataByName(const char *pName) const
+{
+	for (CNoeCustomData *pData = mpDataHead; pData; pData = pData->mpNext)
+	{
+		if (!_stricmp(pName, pData->mpName))
+		{
+			return pData;
+		}
+	}
+	return NULL;
+}
+
+NoeInline CNoeCustomData *CNoeCustomDataList::FindCustomDataByType(const char *pType) const
+{
+	for (CNoeCustomData *pData = mpDataHead; pData; pData = pData->mpNext)
+	{
+		if (!_stricmp(pType, pData->mpType))
+		{
+			return pData;
+		}
+	}
+	return NULL;
+}
+
+NoeInline void CNoeCustomDataList::DuplicateListData(CNoeCustomDataList &otherList, noeRAPI_t *pRapi, bool allocPooled)
+{
+	DestroyList();
+	for (CNoeCustomData *pOtherData = otherList.mpDataHead; pOtherData; pOtherData = pOtherData->mpNext)
+	{
+		CNoeCustomData *pDupData = CreateCustomData(pOtherData->mpName, pOtherData->mpType, pRapi, allocPooled);
+		pDupData->SetData(pOtherData->GetData(), pOtherData->GetDataSize());
+	}
+}
+
+NoeInline void CNoeCustomDataList::AssumeOwnership(CNoeCustomDataList &otherList)
+{
+	NoeAssert(!mpDataHead);
+	mpDataHead = otherList.mpDataHead;
+	otherList.mpDataHead = NULL;
+}
+
+NoeInline void CNoeCustomDataList::DestroyList()
+{
+	CNoeCustomData *pData = mpDataHead;
+	while (pData)
+	{
+		CNoeCustomData *pNext = pData->mpNext;
+		DestroyCustomData(pData);
+		pData = pNext;
+	}
+	mpDataHead = NULL;
+}
+
+NoeInline CNoeCustomDataList &CNoeCustomDataList::operator=(CNoeCustomDataList &otherList)
+{
+	AssumeOwnership(otherList);
+	return *this;
+}
 
 #define NPLUGIN_API __declspec(dllexport)
 
